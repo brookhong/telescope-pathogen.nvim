@@ -122,9 +122,9 @@ function M.browse_file(opts)
     -- local cwd = opts.cwd or utils.capture("git rev-parse --show-toplevel", ture)
     local cwd = opts.cwd or vim.fs.normalize(vim.fn.getcwd())
     opts.prompt_title = opts.prompt_title or "Browse file"
-    local ls1 = function(path)
+    local ls1 = function(path, pattern)
         local t = {}
-        for _, f in ipairs(vim.fn.globpath(path, "*", false, true)) do
+        for _, f in ipairs(vim.fn.globpath(path, pattern, false, true)) do
             local offset = string.len(path) + 2
             if path == "/" then
                 offset = 2
@@ -132,7 +132,7 @@ function M.browse_file(opts)
                 offset = 4
             end
             table.insert(t, {
-                value = string.sub(f, offset),
+                value = string.sub(vim.fs.normalize(f), offset),
                 kind = vim.fn.isdirectory(f) == 1 and "📁" or " "
             })
         end
@@ -145,9 +145,9 @@ function M.browse_file(opts)
             { remaining = true },
         },
     }
-    local new_finder = function(cwd)
+    local new_finder = function(cwd, pattern)
         return finders.new_table({
-            results = ls1(cwd),
+            results = ls1(cwd, pattern),
             entry_maker = function(entry)
                 return {
                     ordinal = entry.value .. (entry.kind == "📁" and "/" or ""),
@@ -165,14 +165,29 @@ function M.browse_file(opts)
     end
     local pickit = function(prompt_bufnr)
         local content = state.get_selected_entry(prompt_bufnr)
+        local curr_picker = state.get_current_picker(prompt_bufnr)
         if content == nil then
+            local input = curr_picker:_get_prompt()
+            if vim.fn.filereadable(input) == 1 then
+                vim.cmd("tabedit " .. input)
+            elseif vim.fn.isdirectory(input) == 1 then
+                cwd = input:gsub("/+$", "")
+                curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
+            elseif string.match(input, "^[^/]+/.+") ~= nil then
+                input = input:gsub("/", "*/") .. "*"
+                -- avoid long run from **
+                input = input:gsub("%*%*", "*")
+                curr_picker:refresh(new_finder(cwd, input), { reset_prompt = true, new_prefix = cwd .. "> " })
+            elseif string.match(input, '^[A-z]:/?$') ~= nil then
+                cwd = input:gsub("/$", "") .. "/"
+                curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
+            end
             return
         end
-        local curr_picker = state.get_current_picker(prompt_bufnr)
         if content.kind == "📁" then
             cwd = (cwd):sub(-1) ~= "/" and cwd .. "/" or cwd
             cwd = cwd .. content.value
-            curr_picker:refresh(new_finder(cwd), { reset_prompt = true, new_prefix = cwd .. "> " })
+            curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
         else
             vim.cmd("tabedit " .. cwd .. "/" .. content.value)
         end
@@ -194,7 +209,7 @@ function M.browse_file(opts)
     local picker = require("telescope.pickers").new(opts, {
         prompt_title = opts.prompt_title,
         prompt_prefix = cwd .. "> ",
-        finder = new_finder(cwd),
+        finder = new_finder(cwd, "*"),
         previewer = previewers.new_buffer_previewer {
             title = "File Preview",
             define_preview = function(self, entry, status)
@@ -219,10 +234,10 @@ function M.browse_file(opts)
             return common_mappings(_, map)
         end,
     })
-    picker.reload = function(_, _cwd)
-        cwd = _cwd
+    picker.reload = function(_, new_cwd)
+        cwd = new_cwd
         local previous_prompt = picker:_get_prompt(),
-        picker:refresh(new_finder(cwd), { reset_prompt = true, new_prefix = cwd .. "> " })
+        picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
         picker:set_prompt(previous_prompt)
     end
     picker:find()
