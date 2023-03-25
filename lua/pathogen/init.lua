@@ -169,7 +169,8 @@ function M.browse_file(opts)
         if content == nil then
             local input = curr_picker:_get_prompt()
             if vim.fn.filereadable(input) == 1 then
-                vim.cmd("tabedit " .. input)
+                actions._close(prompt_bufnr)
+                vim.cmd("edit " .. input)
             elseif vim.fn.isdirectory(input) == 1 then
                 cwd = input:gsub("/+$", "")
                 curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
@@ -189,7 +190,8 @@ function M.browse_file(opts)
             cwd = cwd .. content.value
             curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
         else
-            vim.cmd("tabedit " .. cwd .. "/" .. content.value)
+            actions._close(prompt_bufnr)
+            vim.cmd("edit " .. cwd .. "/" .. content.value)
         end
     end
     local function find_files(prompt_bufnr)
