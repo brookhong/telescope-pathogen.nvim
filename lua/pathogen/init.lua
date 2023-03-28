@@ -1,8 +1,9 @@
 local actions = require("telescope.actions")
 local builtin = require('telescope.builtin')
-local state = require("telescope.actions.state")
+local config = require("telescope.config")
 local finders = require("telescope.finders")
 local previewers = require('telescope.previewers')
+local state = require("telescope.actions.state")
 
 local M = {}
 
@@ -41,7 +42,7 @@ end
 local cwd_stack = {}
 local previous_mode
 local word_match = "-w"
-local function common_mappings(_, map)
+local function common_mappings(prompt_bufnr, map)
     local function proceed_with_parent_dir(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
         local cwd = curr_picker.prompt_prefix:gsub("> $", "")
@@ -58,14 +59,6 @@ local function common_mappings(_, map)
             return
         end
         reload_picker(curr_picker, prompt_bufnr, table.remove(cwd_stack, #cwd_stack))
-    end
-    local function clear_prompt_or_proceed_with_parent_dir(prompt_bufnr)
-        local curr_picker = state.get_current_picker(prompt_bufnr)
-        if curr_picker:_get_prompt() == "" then
-            proceed_with_parent_dir(prompt_bufnr)
-        else
-            curr_picker:reset_prompt()
-        end
     end
     local function change_working_directory(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
@@ -91,7 +84,6 @@ local function common_mappings(_, map)
     end
     map("i", "<C-o>", proceed_with_parent_dir)
     map("i", "<C-l>", revert_back_last_dir)
-    map("i", "<C-w>", clear_prompt_or_proceed_with_parent_dir)
     map("i", "<C-b>", change_working_directory)
     if current_mode == "grep_string" then
         local function toggle_word_match(prompt_bufnr)
@@ -133,15 +125,18 @@ function M.browse_file(opts)
             end
             table.insert(t, {
                 value = string.sub(vim.fs.normalize(f), offset),
+                mtime = vim.fn.getftime(f),
                 kind = vim.fn.isdirectory(f) == 1 and "📁" or " "
             })
         end
+        table.sort(t, function(a, b) return a.mtime > b.mtime end)
         return t
     end
     local displayer = entry_display.create {
         separator = " ",
         items = {
-            { width = 4 },
+            { width = 2 },
+            { width = 24 },
             { remaining = true },
         },
     }
@@ -152,10 +147,12 @@ function M.browse_file(opts)
                 return {
                     ordinal = entry.value .. (entry.kind == "📁" and "/" or ""),
                     value = entry.value,
+                    mtime = vim.fn.strftime("%c", entry.mtime),
                     kind = entry.kind,
                     display = function(entry)
                         return displayer {
                             entry.kind,
+                            { entry.mtime, "TelescopePreviewDate" },
                             { entry.value, entry.kind == "📁" and "Directory" or "" },
                         }
                     end,
@@ -168,20 +165,27 @@ function M.browse_file(opts)
         local curr_picker = state.get_current_picker(prompt_bufnr)
         if content == nil then
             local input = curr_picker:_get_prompt()
+            -- avoid long run from **
+            input = input:gsub("%*%*", "*")
+            input = vim.fs.normalize(input)
+
             if vim.fn.filereadable(input) == 1 then
                 actions._close(prompt_bufnr)
                 vim.cmd("edit " .. input)
+            elseif string.match(input, '^[A-z]:/?$') ~= nil then
+                cwd = input:gsub("/$", "") .. "/"
+                curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
             elseif vim.fn.isdirectory(input) == 1 then
                 cwd = input:gsub("/+$", "")
                 curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
             elseif string.match(input, "^[^/]+/.+") ~= nil then
                 input = input:gsub("/", "*/") .. "*"
-                -- avoid long run from **
-                input = input:gsub("%*%*", "*")
                 curr_picker:refresh(new_finder(cwd, input), { reset_prompt = true, new_prefix = cwd .. "> " })
-            elseif string.match(input, '^[A-z]:/?$') ~= nil then
-                cwd = input:gsub("/$", "") .. "/"
-                curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
+            elseif string.match(input, "/[^*]+*") ~= nil then
+                local p = string.find(input, "/")
+                cwd = input:sub(1, p)
+                input = input:sub(p + 1)
+                curr_picker:refresh(new_finder(cwd, input), { reset_prompt = true, new_prefix = cwd .. "> " })
             end
             return
         end
@@ -193,6 +197,11 @@ function M.browse_file(opts)
             actions._close(prompt_bufnr)
             vim.cmd("edit " .. cwd .. "/" .. content.value)
         end
+    end
+    local function edit_path(prompt_bufnr)
+        local curr_picker = state.get_current_picker(prompt_bufnr)
+        local cwd = curr_picker.prompt_prefix:gsub("> $", "")
+        curr_picker:set_prompt(cwd)
     end
     local function find_files(prompt_bufnr)
         actions._close(prompt_bufnr)
@@ -219,18 +228,19 @@ function M.browse_file(opts)
                 if p == nil or p == "" then
                     return
                 end
-                require("telescope.config").values.buffer_previewer_maker(p, self.state.bufnr, {
+                config.values.buffer_previewer_maker(p, self.state.bufnr, {
                     bufname = self.state.bufname,
                     winid = self.state.winid,
                     preview = opts.preview,
                 })
             end,
         },
-        sorter = require("telescope.config").values.generic_sorter({}),
+        sorter = config.values.generic_sorter({}),
         attach_mappings = function(_, map)
             -- vim.fn.iunmap
             map("i", "<CR>", pickit)
             map("i", "<Tab>", pickit)
+            map("i", ",", edit_path)
             map("i", "<C-e>", live_grep)
             map("i", "<C-f>", find_files)
             return common_mappings(_, map)
@@ -249,7 +259,7 @@ local function start_builtin(opts)
     opts = opts or {}
     opts.cwd = opts.cwd or vim.loop.cwd()
     opts.prompt_prefix = opts.cwd .. "> "
-    opts.attach_mappings = common_mappings
+    opts.attach_mappings = opts.attach_mappings or common_mappings
     builtin[current_mode](opts)
 end
 
@@ -268,6 +278,9 @@ end
 
 function M.live_grep(opts)
     current_mode = "live_grep"
+    opts = {
+        default_text = vim.fn.getreg("/"):gsub("\\<([^\\]+)\\>", "%1")
+    }
     start_builtin(opts)
 end
 

@@ -27,7 +27,8 @@ A quick ui within telescope to pick up file or directory.
 
 * `CR` pick up the file or directory.
 * `Tab` pick up the file or directory.
-* `C-w` navigate to parent directory.
+* `,` edit current working directory.
+* `C-o` navigate to parent directory.
 * `C-e` trigger `live_grep` within picked directory.
 * `C-f` trigger `find_files` within picked directory.
 
