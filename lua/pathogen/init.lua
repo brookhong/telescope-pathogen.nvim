@@ -149,6 +149,7 @@ function M.browse_file(opts)
                     value = entry.value,
                     mtime = vim.fn.strftime("%c", entry.mtime),
                     kind = entry.kind,
+                    path = cwd .. "/" .. entry.value, -- for default actions like select_horizontal
                     display = function(entry)
                         return displayer {
                             entry.kind,
