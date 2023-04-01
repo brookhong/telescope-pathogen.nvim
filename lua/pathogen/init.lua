@@ -279,9 +279,8 @@ end
 
 function M.live_grep(opts)
     current_mode = "live_grep"
-    opts = {
-        default_text = vim.fn.getreg("/"):gsub("\\<([^\\]+)\\>", "%1")
-    }
+    opts = opts or {}
+    opts.default_text = vim.fn.getreg("/"):gsub("\\<([^\\]+)\\>", "%1")
     start_builtin(opts)
 end
 
