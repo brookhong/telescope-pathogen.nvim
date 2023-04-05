@@ -32,7 +32,7 @@ local function reload_picker(curr_picker, prompt_bufnr, cwd)
     if current_mode == "grep_string" then
         opts.search = __last_search
     end
-    actions._close(prompt_bufnr)
+    actions.close(prompt_bufnr)
     builtin[current_mode](opts)
 end
 local function get_parent_dir(dir)
@@ -76,7 +76,7 @@ local function common_mappings(prompt_bufnr, map)
             if current_mode == "browse_file" then
                 return
             else
-                actions._close(prompt_bufnr)
+                actions.close(prompt_bufnr)
                 previous_mode = current_mode
                 M.browse_file({ cwd = cwd, only_dir = true, prompt_title = "Browse directory" })
             end
@@ -99,7 +99,7 @@ local function common_mappings(prompt_bufnr, map)
                 word_match = word_match,
                 search = __last_search
             }
-            actions._close(prompt_bufnr)
+            actions.close(prompt_bufnr)
             builtin.grep_string(opts)
         end
         map("i", "<C-y>", toggle_word_match)
@@ -116,7 +116,13 @@ function M.browse_file(opts)
     opts.prompt_title = opts.prompt_title or "Browse file"
     local ls1 = function(path, pattern)
         local t = {}
-        for _, f in ipairs(vim.fn.globpath(path, pattern, false, true)) do
+        local content = vim.fn.globpath(path, pattern, false, true)
+        if pattern == "*" then
+            for _, f in ipairs(vim.fn.globpath(path, ".[^.]*", false, true)) do
+                content[#content + 1] = f
+            end
+        end
+        for _, f in ipairs(content) do
             local offset = string.len(path) + 2
             if path == "/" then
                 offset = 2
@@ -171,7 +177,7 @@ function M.browse_file(opts)
             input = vim.fs.normalize(input)
 
             if vim.fn.filereadable(input) == 1 then
-                actions._close(prompt_bufnr)
+                actions.close(prompt_bufnr)
                 vim.cmd("edit " .. input)
             elseif string.match(input, '^[A-z]:/?$') ~= nil then
                 cwd = input:gsub("/$", "") .. "/"
@@ -195,7 +201,7 @@ function M.browse_file(opts)
             cwd = cwd .. content.value
             curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
         else
-            actions._close(prompt_bufnr)
+            actions.close(prompt_bufnr)
             vim.cmd("edit " .. cwd .. "/" .. content.value)
         end
     end
@@ -205,18 +211,61 @@ function M.browse_file(opts)
         curr_picker:set_prompt(cwd)
     end
     local function find_files(prompt_bufnr)
-        actions._close(prompt_bufnr)
+        actions.close(prompt_bufnr)
         previous_mode = current_mode
         M.find_files({
             cwd = cwd
         })
     end
     local function live_grep(prompt_bufnr)
-        actions._close(prompt_bufnr)
+        actions.close(prompt_bufnr)
         previous_mode = current_mode
         M.live_grep({
             cwd = cwd
         })
+    end
+    local function create_file(prompt_bufnr)
+        local curr_picker = state.get_current_picker(prompt_bufnr)
+        local content = state.get_selected_entry(prompt_bufnr)
+        if content ~= nil then
+            local file_name = cwd .. "/" .. content.value
+            vim.ui.input({ prompt = "Copy file: ", default = file_name }, function(input)
+                if not input or input == file_name then
+                    return
+                end
+                actions.close(prompt_bufnr)
+                vim.loop.fs_copyfile(file_name, input)
+                vim.cmd("edit " .. input)
+            end)
+        else
+            local file_name = cwd .. "/" .. curr_picker:_get_prompt()
+            vim.ui.input({ prompt = "Create file: ", default = file_name }, function(input)
+                if not input then
+                    return
+                end
+                actions.close(prompt_bufnr)
+                vim.loop.fs_open(input, "w", 644)
+                vim.cmd("edit " .. input)
+            end)
+        end
+    end
+    local function delete_file(prompt_bufnr)
+        local curr_picker = state.get_current_picker(prompt_bufnr)
+        local content = state.get_selected_entry(prompt_bufnr)
+        if content ~= nil then
+            vim.ui.input({ prompt = "Delete file: ", default = cwd .. "/" .. content.value }, function(input)
+                if not input then
+                    return
+                end
+                vim.fn.delete(input)
+                curr_picker:reload(cwd)
+            end)
+        end
+    end
+    local function terminal(prompt_bufnr)
+        actions.close(prompt_bufnr)
+        vim.cmd("cd " .. cwd)
+        vim.cmd("tabnew term://" .. (vim.g.SHELL == nil and "zsh" or vim.g.SHELL))
     end
     local picker = require("telescope.pickers").new(opts, {
         prompt_title = opts.prompt_title,
@@ -244,6 +293,9 @@ function M.browse_file(opts)
             map("i", ",", edit_path)
             map("i", "<C-e>", live_grep)
             map("i", "<C-f>", find_files)
+            map("i", "<A-c>", create_file)
+            map("i", "<A-d>", delete_file)
+            map("i", "<A-t>", terminal)
             return common_mappings(_, map)
         end,
     })
