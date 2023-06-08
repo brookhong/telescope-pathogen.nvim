@@ -330,10 +330,12 @@ function M.find_files(opts)
 end
 
 function M.live_grep(opts)
-    current_mode = "live_grep"
-    opts = opts or {}
-    opts.default_text = vim.fn.getreg("/"):gsub("\\<([^\\]+)\\>", "%1")
-    start_builtin(opts)
+	current_mode = "live_grep"
+	opts = opts or {}
+	if opts.use_last_search then
+		opts.default_text = vim.fn.getreg("/"):gsub("\\<([^\\]+)\\>", "%1")
+	end
+	start_builtin(opts)
 end
 
 return M

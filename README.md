@@ -56,4 +56,11 @@ Use [lazy.nvim](https://github.com/folke/lazy.nvim)
             { "<C-f>", ":Telescope pathogen find_files<CR>", silent = true },
             { "<space>g", ":Telescope pathogen grep_string<CR>", silent = true },
         }
+        opts = {
+          use_last_search = false
+        }
     }
+
+### opts:
+
+- `use_last_search` when set to `true`, `pathogen live_grep` search will begin with the text from your last search. E.g., if you last used the `/` command to search for a string `hello world`, then you will see `hello world` as the input when you begin `pathogen live_grep`
