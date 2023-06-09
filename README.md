@@ -47,6 +47,14 @@ Use [lazy.nvim](https://github.com/folke/lazy.nvim)
             { "telescope-pathogen.nvim" },
         },
         config = function()
+            require("telescope").setup({
+                extensions = {
+                    ["pathogen"] = {
+                        -- remove below if you want to enable it
+                        use_last_search_for_live_grep = false
+                    }
+                },
+            })
             require("telescope").load_extension("pathogen")
             vim.keymap.set('v', '<space>g', require("telescope").extensions["pathogen"].grep_string)
         end,

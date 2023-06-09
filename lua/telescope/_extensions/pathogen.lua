@@ -9,6 +9,9 @@ local pathogen = require("pathogen")
 return telescope.register_extension {
   setup = function(ext_config, config)
     -- access extension config and user config
+    if ext_config.use_last_search_for_live_grep ~= nil then
+        pathogen.use_last_search_for_live_grep = ext_config.use_last_search_for_live_grep
+    end
   end,
   exports = {
     pathogen = pathogen.browse_file,

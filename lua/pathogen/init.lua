@@ -5,7 +5,9 @@ local finders = require("telescope.finders")
 local previewers = require('telescope.previewers')
 local state = require("telescope.actions.state")
 
-local M = {}
+local M = {
+    use_last_search_for_live_grep = true
+}
 
 local unescape_chars = function(str)
     return string.gsub(str, "\\", "")
@@ -142,7 +144,7 @@ function M.browse_file(opts)
         separator = " ",
         items = {
             { width = 2 },
-            { width = 24 },
+            { width = 31 },
             { remaining = true },
         },
     }
@@ -332,7 +334,9 @@ end
 function M.live_grep(opts)
     current_mode = "live_grep"
     opts = opts or {}
-    opts.default_text = vim.fn.getreg("/"):gsub("\\<([^\\]+)\\>", "%1")
+    if M.use_last_search_for_live_grep then
+        opts.default_text = vim.fn.getreg("/"):gsub("\\<([^\\]+)\\>", "%1")
+    end
     start_builtin(opts)
 end
 
