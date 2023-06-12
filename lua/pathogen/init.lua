@@ -314,7 +314,7 @@ end
 local function start_builtin(opts)
     opts = opts or {}
     local cwd = opts.cwd or vim.loop.cwd()
-    opts.cwd = M.short_prompt_path and vim.fnamemodify(cwd, ":~") or cwd
+    opts.cwd = M.short_prompt_path and vim.fn.fnamemodify(cwd, ":~") or cwd
     opts.prompt_prefix = opts.cwd .. "> "
     opts.attach_mappings = opts.attach_mappings or common_mappings
     builtin[current_mode](opts)
