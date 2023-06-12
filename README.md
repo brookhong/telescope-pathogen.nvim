@@ -51,7 +51,9 @@ Use [lazy.nvim](https://github.com/folke/lazy.nvim)
                 extensions = {
                     ["pathogen"] = {
                         -- remove below if you want to enable it
-                        use_last_search_for_live_grep = false
+                        use_last_search_for_live_grep = false,
+                        -- uses a relative path instead of the full path
+                        short_prompt_path = true
                     }
                 },
             })
