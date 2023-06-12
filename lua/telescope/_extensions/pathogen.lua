@@ -12,6 +12,9 @@ return telescope.register_extension {
     if ext_config.use_last_search_for_live_grep ~= nil then
         pathogen.use_last_search_for_live_grep = ext_config.use_last_search_for_live_grep
     end
+    if ext_config.short_prompt_path ~= nil then
+        pathogen.short_prompt_path = ext_config.short_prompt_path
+    end
   end,
   exports = {
     pathogen = pathogen.browse_file,

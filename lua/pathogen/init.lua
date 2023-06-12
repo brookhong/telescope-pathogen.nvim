@@ -6,7 +6,8 @@ local previewers = require('telescope.previewers')
 local state = require("telescope.actions.state")
 
 local M = {
-    use_last_search_for_live_grep = true
+    use_last_search_for_live_grep = true,
+    short_prompt_path = false
 }
 
 local unescape_chars = function(str)
@@ -312,7 +313,8 @@ end
 
 local function start_builtin(opts)
     opts = opts or {}
-    opts.cwd = opts.cwd or vim.loop.cwd()
+    local cwd = opts.cwd or vim.loop.cwd()
+    opts.cwd = M.short_prompt_path and vim.fnamemodify(cwd, ":~") or cwd
     opts.prompt_prefix = opts.cwd .. "> "
     opts.attach_mappings = opts.attach_mappings or common_mappings
     builtin[current_mode](opts)
