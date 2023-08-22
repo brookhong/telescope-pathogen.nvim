@@ -18,5 +18,6 @@ return telescope.register_extension {
     grep_string = pathogen.grep_string,
     find_files = pathogen.find_files,
     live_grep = pathogen.live_grep,
+    grep_in_files = pathogen.grep_in_files,
   },
 }

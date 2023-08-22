@@ -1,9 +1,14 @@
 local actions = require("telescope.actions")
-local builtin = require('telescope.builtin')
-local config = require("telescope.config")
+local builtin = require("telescope.builtin")
+local conf = require("telescope.config").values
 local finders = require("telescope.finders")
-local previewers = require('telescope.previewers')
+local previewers = require("telescope.previewers")
 local state = require("telescope.actions.state")
+local pickers = require("telescope.pickers")
+local sorters = require("telescope.sorters")
+local make_entry = require("telescope.make_entry")
+local popup = require("plenary.popup")
+local flatten = vim.tbl_flatten
 
 local M = {
     use_last_search_for_live_grep = true
@@ -269,7 +274,7 @@ function M.browse_file(opts)
         vim.cmd("cd " .. cwd)
         vim.cmd("tabnew term://" .. (vim.g.SHELL == nil and "zsh" or vim.g.SHELL))
     end
-    local picker = require("telescope.pickers").new(opts, {
+    local picker = pickers.new(opts, {
         prompt_title = opts.prompt_title,
         prompt_prefix = cwd .. "> ",
         finder = new_finder(cwd, "*"),
@@ -280,14 +285,14 @@ function M.browse_file(opts)
                 if p == nil or p == "" then
                     return
                 end
-                config.values.buffer_previewer_maker(p, self.state.bufnr, {
+                conf.buffer_previewer_maker(p, self.state.bufnr, {
                     bufname = self.state.bufname,
                     winid = self.state.winid,
                     preview = opts.preview,
                 })
             end,
         },
-        sorter = config.values.generic_sorter({}),
+        sorter = conf.generic_sorter({}),
         attach_mappings = function(_, map)
             -- vim.fn.iunmap
             map("i", "<CR>", pickit)
@@ -338,6 +343,89 @@ function M.live_grep(opts)
         opts.default_text = vim.fn.getreg("/"):gsub("\\<([^\\]+)\\>", "%1")
     end
     start_builtin(opts)
+end
+
+local function grep_in_files(opts)
+    opts.cwd = opts.cwd and vim.fn.expand(opts.cwd) or vim.loop.cwd()
+
+    local live_grepper = finders.new_job(function(prompt)
+        if not prompt or prompt == "" then
+            return nil
+        end
+
+        return flatten { conf.vimgrep_arguments, "--", prompt, opts.search_list }
+    end, make_entry.gen_from_vimgrep(opts), opts.max_results, opts.cwd)
+
+    pickers.new(opts, {
+        prompt_title = "Live Grep in specified files",
+        finder = live_grepper,
+        previewer = conf.grep_previewer(opts),
+        -- TODO: It would be cool to use `--json` output for this
+        -- and then we could get the highlight positions directly.
+        sorter = sorters.highlighter_only(opts),
+        attach_mappings = function(_, map)
+            map("i", "<c-space>", actions.to_fuzzy_refine)
+            return true
+        end,
+    })
+    :find()
+end
+
+local function unique(a)
+    local hash = {}
+    local res = {}
+    hash[""] = true -- prevent empty line
+    for _,v in ipairs(a) do
+        if (not hash[v]) then
+            res[#res+1] = v
+            hash[v] = true
+        end
+    end
+    return res
+end
+
+local function launch_search_list_editor(search_list)
+    local search_list = {}
+    local file_list_cache = vim.fn.stdpath('cache') .. '/telescope-pathogen.search_list'
+    if vim.fn.filereadable(file_list_cache) == 1 then
+        search_list = vim.fn.readfile(file_list_cache)
+    end
+
+    local win_id = popup.create(search_list, {
+        minheight = 20,
+        maxheight = 20,
+        width = 120,
+        border = true,
+        title = "Edit the file list to search, with one file each line, <CR> to continue, <c-c> to abort.",
+        highlight = "PopupColor",
+    })
+    local search_list_bufnr = vim.api.nvim_win_get_buf(win_id)
+    vim.api.nvim_create_autocmd("BufLeave", {
+        buffer = search_list_bufnr,
+        nested = true,
+        once = true,
+        callback = function()
+            -- vim.api.nvim_buf_delete(search_list_bufnr, { force = true })
+            vim.api.nvim_win_close(win_id, true)
+        end,
+    })
+
+    local bufopts = { noremap=true, silent=true, buffer=search_list_bufnr }
+    vim.keymap.set("n", "<CR>", function()
+        vim.cmd("%s/|\\d\\+ .*//e")
+        search_list = unique(vim.api.nvim_buf_get_lines(0, 0, -1, false))
+        vim.fn.writefile(search_list, file_list_cache)
+        grep_in_files({
+            search_list = search_list
+        })
+    end, bufopts)
+    vim.keymap.set("n", "<c-c>", function()
+        vim.api.nvim_win_close(win_id, true)
+    end, bufopts)
+end
+
+function M.grep_in_files(opts)
+    launch_search_list_editor()
 end
 
 return M

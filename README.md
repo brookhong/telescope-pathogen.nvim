@@ -21,6 +21,10 @@
 
 * `C-y` in the popup for `grep_string` to toggle exact word matches.
 
+* `grep_in_files` helps to grep a string in a specified file list. It will launch a popup first for you to edit the file list, then `<Cr>` to continue with same UI as `live_grep` or `<Esc>` to abort.
+
+![grep_in_files](https://github.com/brookhong/telescope-pathogen.nvim/assets/288207/05f54ddb-06ee-4951-8bef-d30cf178035e)
+
 ### file browser
 
 A quick ui within telescope to pick up file or directory.
