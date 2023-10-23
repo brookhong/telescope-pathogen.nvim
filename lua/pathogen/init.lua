@@ -43,6 +43,9 @@ local function reload_picker(curr_picker, prompt_bufnr, cwd)
     builtin[current_mode](opts)
 end
 local function get_parent_dir(dir)
+    if dir == "" or dir == "/" then
+        return dir
+    end
     return vim.fn.fnamemodify((vim.fs.normalize(dir)):gsub("(\\S*)/*$", "%1"), ":h")
 end
 
@@ -89,9 +92,73 @@ local function common_mappings(prompt_bufnr, map)
             end
         end
     end
+    local function grep_in_result_impl(prompt_bufnr, kind, sorter)
+        local picker = state.get_current_picker(prompt_bufnr)
+        local results = {}
+        for entry in picker.manager:iter() do
+            results[#results + 1] = entry[1]
+        end
+        if #results < 2 then
+            return
+        end
+
+        local new_finder = function()
+            return finders.new_table({
+                results = results,
+                entry_maker = make_entry.gen_from_vimgrep()
+            })
+        end
+
+        local prompt_title = picker.prompt_title
+        local new_prompt_title = ""
+        local last_kind = prompt_title:sub(-1)
+        if last_kind == "+" or last_kind == "-" then
+            if picker:_get_prompt() == "" then
+                return
+            else
+                new_prompt_title = prompt_title .. picker:_get_prompt() .. " " .. kind
+            end
+        else
+            new_prompt_title = prompt_title .. " : " .. picker:_get_prompt() .. " " .. kind
+        end
+
+        -- print("picker", vim.inspect(picker))
+        local new_picker = pickers.new({}, {
+            prompt_title = new_prompt_title,
+            finder = new_finder(),
+            previewer = picker.previewer,
+            sorter = sorter,
+            attach_mappings = function(prompt_bufnr, map)
+                picker.attach_mappings(prompt_bufnr, map)
+                -- vim.keymap.del('i', "<C-b>", { buffer = prompt_bufnr })
+                map("i", "<C-b>", function()
+                    picker:find()
+                end)
+                return true
+            end,
+        })
+        new_picker:find()
+    end
+    local function grep_in_result(prompt_bufnr)
+        grep_in_result_impl(prompt_bufnr, "+", sorters.get_substr_matcher())
+    end
+    local function invert_grep_in_result(prompt_bufnr)
+        grep_in_result_impl(prompt_bufnr, "-", sorters.Sorter:new {
+            discard = false,
+
+            scoring_function = function(_, prompt, line)
+                if prompt ~= "" and string.find(line, prompt) then
+                    return -1
+                end
+                return 1
+            end,
+        })
+    end
     map("i", "<C-o>", proceed_with_parent_dir)
     map("i", "<C-l>", revert_back_last_dir)
     map("i", "<C-b>", change_working_directory)
+    map("i", "<C-1>", grep_in_result)
+    map("i", "<C-0>", invert_grep_in_result)
     if current_mode == "grep_string" then
         local function toggle_word_match(prompt_bufnr)
             word_match = word_match == nil and "-w" or nil

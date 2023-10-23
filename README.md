@@ -25,6 +25,13 @@
 
 ![grep_in_files](https://github.com/brookhong/telescope-pathogen.nvim/assets/288207/05f54ddb-06ee-4951-8bef-d30cf178035e)
 
+* Continuous search to help you continuously search in previous search result to generate a new result which should include or exclude another pattern, which works for both `live_grep` and `grep_string`.
+    * `Ctrl-0` to initiate another search(invert grep) among the previous results to exclude another pattern.
+    * `Ctrl-1` to initiate another search(grep) among the previous results to include another pattern.
+    * `Ctrl-b` to go back to previous search.
+
+[Showcase on Youtube](https://www.youtube.com/watch?v=cCeIuBG4vYM)
+
 ### file browser
 
 A quick ui within telescope to pick up file or directory.
