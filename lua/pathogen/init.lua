@@ -2,7 +2,6 @@ local actions = require("telescope.actions")
 local builtin = require("telescope.builtin")
 local conf = require("telescope.config").values
 local finders = require("telescope.finders")
-local previewers = require("telescope.previewers")
 local state = require("telescope.actions.state")
 local pickers = require("telescope.pickers")
 local sorters = require("telescope.sorters")
@@ -43,7 +42,7 @@ local function reload_picker(curr_picker, prompt_bufnr, cwd)
     builtin[current_mode](opts)
 end
 local function get_parent_dir(dir)
-    if dir == "" or dir == "/" then
+    if dir == "" or dir == "/" or string.match(dir, "^[A-z]:/$") ~= nil then
         return dir
     end
     return vim.fn.fnamemodify((vim.fs.normalize(dir)):gsub("(\\S*)/*$", "%1"), ":h")
@@ -55,13 +54,12 @@ local word_match = "-w"
 local function common_mappings(prompt_bufnr, map)
     local function proceed_with_parent_dir(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
-        local cwd = curr_picker.prompt_prefix:gsub("> $", "")
-        if get_parent_dir(cwd) == cwd then
+        if get_parent_dir(curr_picker.cwd) == curr_picker.cwd then
             vim.notify("You are already under root.")
             return
         end
-        table.insert(cwd_stack, cwd)
-        reload_picker(curr_picker, prompt_bufnr, get_parent_dir(cwd))
+        table.insert(cwd_stack, curr_picker.cwd)
+        reload_picker(curr_picker, prompt_bufnr, get_parent_dir(curr_picker.cwd))
     end
     local function revert_back_last_dir(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
@@ -72,14 +70,13 @@ local function common_mappings(prompt_bufnr, map)
     end
     local function change_working_directory(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
-        local cwd = curr_picker.prompt_prefix:gsub("> $", "")
 
         if previous_mode then
             if previous_mode == "browse_file" then
-                M.browse_file({ cwd = cwd })
+                M.browse_file({ cwd = curr_picker.cwd })
             else
                 current_mode = previous_mode
-                reload_picker(curr_picker, prompt_bufnr, cwd)
+                reload_picker(curr_picker, prompt_bufnr, curr_picker.cwd)
             end
             previous_mode = nil
         else
@@ -88,7 +85,7 @@ local function common_mappings(prompt_bufnr, map)
             else
                 actions.close(prompt_bufnr)
                 previous_mode = current_mode
-                M.browse_file({ cwd = cwd, only_dir = true, prompt_title = "Browse directory" })
+                M.browse_file({ cwd = curr_picker.cwd, only_dir = true, prompt_title = "Browse directory" })
             end
         end
     end
@@ -105,7 +102,7 @@ local function common_mappings(prompt_bufnr, map)
         local new_finder = function()
             return finders.new_table({
                 results = results,
-                entry_maker = make_entry.gen_from_vimgrep()
+                entry_maker = make_entry.gen_from_vimgrep({ cwd = picker.cwd })
             })
         end
 
@@ -123,7 +120,7 @@ local function common_mappings(prompt_bufnr, map)
         end
 
         -- print("picker", vim.inspect(picker))
-        local new_picker = pickers.new({}, {
+        local new_picker = pickers.new({ cwd = picker.cwd }, {
             prompt_title = new_prompt_title,
             finder = new_finder(),
             previewer = picker.previewer,
@@ -163,12 +160,11 @@ local function common_mappings(prompt_bufnr, map)
         local function toggle_word_match(prompt_bufnr)
             word_match = word_match == nil and "-w" or nil
             local curr_picker = state.get_current_picker(prompt_bufnr)
-            local cwd = curr_picker.prompt_prefix:gsub("> $", "")
             local opts = {
                 default_text = curr_picker:_get_prompt(),
                 attach_mappings = curr_picker.attach_mappings,
-                cwd = cwd,
-                prompt_prefix = cwd .. "> ",
+                cwd = curr_picker.cwd,
+                prompt_prefix = curr_picker.cwd .. "> ",
                 results_title = word_match == nil and "Results" or "Results with exact word matches",
                 word_match = word_match,
                 search = __last_search
@@ -184,10 +180,8 @@ end
 
 function M.browse_file(opts)
     current_mode = "browse_file"
-    local entry_display = require "telescope.pickers.entry_display"
-    -- local cwd = opts.cwd or utils.capture("git rev-parse --show-toplevel", ture)
-    local cwd = opts.cwd or vim.fs.normalize(vim.fn.getcwd())
     opts.prompt_title = opts.prompt_title or "Browse file"
+    opts.cwd = opts.cwd or vim.fs.normalize(vim.fn.getcwd())
     local ls1 = function(path, pattern)
         local t = {}
         local content = vim.fn.globpath(path, pattern, false, true)
@@ -212,7 +206,7 @@ function M.browse_file(opts)
         table.sort(t, function(a, b) return a.mtime > b.mtime end)
         return t
     end
-    local displayer = entry_display.create {
+    local displayer = require("telescope.pickers.entry_display").create {
         separator = " ",
         items = {
             { width = 2 },
@@ -254,55 +248,58 @@ function M.browse_file(opts)
                 actions.close(prompt_bufnr)
                 vim.cmd("edit " .. input)
             elseif string.match(input, '^[A-z]:/?$') ~= nil then
-                cwd = input:gsub("/$", "") .. "/"
-                curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
+                curr_picker.cwd = input:gsub("/$", "") .. "/"
+                curr_picker:refresh(new_finder(curr_picker.cwd, "*"), { reset_prompt = true, new_prefix = curr_picker.cwd .. "> " })
             elseif vim.fn.isdirectory(input) == 1 then
-                cwd = input:gsub("/+$", "")
-                curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
+                curr_picker.cwd = input:gsub("/+$", "")
+                curr_picker:refresh(new_finder(curr_picker.cwd, "*"), { reset_prompt = true, new_prefix = curr_picker.cwd .. "> " })
             elseif string.match(input, "^[^/]+/.+") ~= nil then
                 input = input:gsub("/", "*/") .. "*"
-                curr_picker:refresh(new_finder(cwd, input), { reset_prompt = true, new_prefix = cwd .. "> " })
+                curr_picker:refresh(new_finder(curr_picker.cwd, input), { reset_prompt = true, new_prefix = curr_picker.cwd .. "> " })
             elseif string.match(input, "/[^*]+*") ~= nil then
                 local p = string.find(input, "/")
-                cwd = input:sub(1, p)
+                curr_picker.cwd = input:sub(1, p)
                 input = input:sub(p + 1)
-                curr_picker:refresh(new_finder(cwd, input), { reset_prompt = true, new_prefix = cwd .. "> " })
+                curr_picker:refresh(new_finder(curr_picker.cwd, input), { reset_prompt = true, new_prefix = curr_picker.cwd .. "> " })
             end
             return
         end
         if content.kind == "📁" then
+            local cwd = curr_picker.cwd
             cwd = (cwd):sub(-1) ~= "/" and cwd .. "/" or cwd
             cwd = cwd .. content.value
             curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
+            curr_picker.cwd = cwd
         else
             actions.close(prompt_bufnr)
-            vim.cmd("edit " .. cwd .. "/" .. content.value)
+            vim.cmd("edit " .. curr_picker.cwd .. "/" .. content.value)
         end
     end
     local function edit_path(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
-        local cwd = curr_picker.prompt_prefix:gsub("> $", "")
-        curr_picker:set_prompt(cwd)
+        curr_picker:set_prompt(curr_picker.cwd)
     end
     local function find_files(prompt_bufnr)
+        local curr_picker = state.get_current_picker(prompt_bufnr)
         actions.close(prompt_bufnr)
         previous_mode = current_mode
         M.find_files({
-            cwd = cwd
+            cwd = curr_picker.cwd
         })
     end
     local function live_grep(prompt_bufnr)
+        local curr_picker = state.get_current_picker(prompt_bufnr)
         actions.close(prompt_bufnr)
         previous_mode = current_mode
         M.live_grep({
-            cwd = cwd
+            cwd = curr_picker.cwd
         })
     end
     local function create_file(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
         local content = state.get_selected_entry(prompt_bufnr)
         if content ~= nil then
-            local file_name = cwd .. "/" .. content.value
+            local file_name = curr_picker.cwd .. "/" .. content.value
             vim.ui.input({ prompt = "Copy file: ", default = file_name }, function(input)
                 if not input or input == file_name then
                     return
@@ -312,7 +309,7 @@ function M.browse_file(opts)
                 vim.cmd("edit " .. input)
             end)
         else
-            local file_name = cwd .. "/" .. curr_picker:_get_prompt()
+            local file_name = curr_picker.cwd .. "/" .. curr_picker:_get_prompt()
             vim.ui.input({ prompt = "Create file: ", default = file_name }, function(input)
                 if not input then
                     return
@@ -327,38 +324,26 @@ function M.browse_file(opts)
         local curr_picker = state.get_current_picker(prompt_bufnr)
         local content = state.get_selected_entry(prompt_bufnr)
         if content ~= nil then
-            vim.ui.input({ prompt = "Delete file: ", default = cwd .. "/" .. content.value }, function(input)
+            vim.ui.input({ prompt = "Delete file: ", default = curr_picker.cwd .. "/" .. content.value }, function(input)
                 if not input then
                     return
                 end
                 vim.fn.delete(input)
-                curr_picker:reload(cwd)
+                curr_picker:reload(curr_picker.cwd)
             end)
         end
     end
     local function terminal(prompt_bufnr)
+        local curr_picker = state.get_current_picker(prompt_bufnr)
         actions.close(prompt_bufnr)
-        vim.cmd("cd " .. cwd)
+        vim.cmd("cd " .. curr_picker.cwd)
         vim.cmd("tabnew term://" .. (vim.g.SHELL == nil and "zsh" or vim.g.SHELL))
     end
     local picker = pickers.new(opts, {
         prompt_title = opts.prompt_title,
-        prompt_prefix = cwd .. "> ",
-        finder = new_finder(cwd, "*"),
-        previewer = previewers.new_buffer_previewer {
-            title = "File Preview",
-            define_preview = function(self, entry, status)
-                local p = cwd .. "/" .. entry.value
-                if p == nil or p == "" then
-                    return
-                end
-                conf.buffer_previewer_maker(p, self.state.bufnr, {
-                    bufname = self.state.bufname,
-                    winid = self.state.winid,
-                    preview = opts.preview,
-                })
-            end,
-        },
+        prompt_prefix = opts.cwd .. "> ",
+        finder = new_finder(opts.cwd, "*"),
+        previewer = conf.file_previewer(opts),
         sorter = conf.generic_sorter({}),
         attach_mappings = function(_, map)
             -- vim.fn.iunmap
@@ -374,9 +359,9 @@ function M.browse_file(opts)
         end,
     })
     picker.reload = function(_, new_cwd)
-        cwd = new_cwd
+        picker.cwd = new_cwd
         local previous_prompt = picker:_get_prompt(),
-        picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
+        picker:refresh(new_finder(new_cwd, "*"), { reset_prompt = true, new_prefix = new_cwd .. "> " })
         picker:set_prompt(previous_prompt)
     end
     picker:find()
