@@ -11,6 +11,7 @@ return telescope.register_extension {
     -- access extension config and user config
     if ext_config.use_last_search_for_live_grep ~= nil then
         pathogen.use_last_search_for_live_grep = ext_config.use_last_search_for_live_grep
+        pathogen.prompt_prefix_length = ext_config.prompt_prefix_length
     end
   end,
   exports = {

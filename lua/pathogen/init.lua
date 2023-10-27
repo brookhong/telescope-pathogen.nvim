@@ -10,7 +10,8 @@ local popup = require("plenary.popup")
 local flatten = vim.tbl_flatten
 
 local M = {
-    use_last_search_for_live_grep = true
+    use_last_search_for_live_grep = true,
+    prompt_prefix_length = 100
 }
 
 local unescape_chars = function(str)
@@ -24,6 +25,14 @@ finders.new_oneshot_job = function(args, opts)
     return orig_new_oneshot_job(args, opts)
 end
 
+function build_prompt_prefix(path)
+    if #path > M.prompt_prefix_length then
+        return "…"..path:sub(-M.prompt_prefix_length).."» "
+    else
+        return path.."» "
+    end
+end
+
 local current_mode
 local function reload_picker(curr_picker, prompt_bufnr, cwd)
     if current_mode == "browse_file" then
@@ -33,7 +42,7 @@ local function reload_picker(curr_picker, prompt_bufnr, cwd)
         default_text = curr_picker:_get_prompt(),
         attach_mappings = curr_picker.attach_mappings,
         cwd = cwd,
-        prompt_prefix = cwd .. "> ",
+        prompt_prefix = build_prompt_prefix(cwd),
     }
     if current_mode == "grep_string" then
         opts.search = __last_search
@@ -99,14 +108,15 @@ local function common_mappings(prompt_bufnr, map)
             return
         end
 
+        local prompt_title = picker.prompt_title
+        local entry_maker = prompt_title:sub(1, 10)  == "Find Files" and make_entry.gen_from_file or make_entry.gen_from_vimgrep
         local new_finder = function()
             return finders.new_table({
                 results = results,
-                entry_maker = make_entry.gen_from_vimgrep({ cwd = picker.cwd })
+                entry_maker = entry_maker({ cwd = picker.cwd })
             })
         end
 
-        local prompt_title = picker.prompt_title
         local new_prompt_title = ""
         local last_kind = prompt_title:sub(-1)
         if last_kind == "+" or last_kind == "-" then
@@ -164,7 +174,7 @@ local function common_mappings(prompt_bufnr, map)
                 default_text = curr_picker:_get_prompt(),
                 attach_mappings = curr_picker.attach_mappings,
                 cwd = curr_picker.cwd,
-                prompt_prefix = curr_picker.cwd .. "> ",
+                prompt_prefix = build_prompt_prefix(curr_picker.cwd),
                 results_title = word_match == nil and "Results" or "Results with exact word matches",
                 word_match = word_match,
                 search = __last_search
@@ -249,18 +259,18 @@ function M.browse_file(opts)
                 vim.cmd("edit " .. input)
             elseif string.match(input, '^[A-z]:/?$') ~= nil then
                 curr_picker.cwd = input:gsub("/$", "") .. "/"
-                curr_picker:refresh(new_finder(curr_picker.cwd, "*"), { reset_prompt = true, new_prefix = curr_picker.cwd .. "> " })
+                curr_picker:refresh(new_finder(curr_picker.cwd, "*"), { reset_prompt = true, new_prefix = build_prompt_prefix(curr_picker.cwd) })
             elseif vim.fn.isdirectory(input) == 1 then
                 curr_picker.cwd = input:gsub("/+$", "")
-                curr_picker:refresh(new_finder(curr_picker.cwd, "*"), { reset_prompt = true, new_prefix = curr_picker.cwd .. "> " })
+                curr_picker:refresh(new_finder(curr_picker.cwd, "*"), { reset_prompt = true, new_prefix = build_prompt_prefix(curr_picker.cwd) })
             elseif string.match(input, "^[^/]+/.+") ~= nil then
                 input = input:gsub("/", "*/") .. "*"
-                curr_picker:refresh(new_finder(curr_picker.cwd, input), { reset_prompt = true, new_prefix = curr_picker.cwd .. "> " })
+                curr_picker:refresh(new_finder(curr_picker.cwd, input), { reset_prompt = true, new_prefix = build_prompt_prefix(curr_picker.cwd) })
             elseif string.match(input, "/[^*]+*") ~= nil then
                 local p = string.find(input, "/")
                 curr_picker.cwd = input:sub(1, p)
                 input = input:sub(p + 1)
-                curr_picker:refresh(new_finder(curr_picker.cwd, input), { reset_prompt = true, new_prefix = curr_picker.cwd .. "> " })
+                curr_picker:refresh(new_finder(curr_picker.cwd, input), { reset_prompt = true, new_prefix = build_prompt_prefix(curr_picker.cwd) })
             end
             return
         end
@@ -268,7 +278,7 @@ function M.browse_file(opts)
             local cwd = curr_picker.cwd
             cwd = (cwd):sub(-1) ~= "/" and cwd .. "/" or cwd
             cwd = cwd .. content.value
-            curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = cwd .. "> " })
+            curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = build_prompt_prefix(cwd) })
             curr_picker.cwd = cwd
         else
             actions.close(prompt_bufnr)
@@ -363,7 +373,7 @@ function M.browse_file(opts)
     end
     local picker = pickers.new(opts, {
         prompt_title = opts.prompt_title,
-        prompt_prefix = opts.cwd .. "> ",
+        prompt_prefix = build_prompt_prefix(opts.cwd),
         finder = new_finder(opts.cwd, "*"),
         previewer = conf.file_previewer(opts),
         sorter = conf.generic_sorter({}),
@@ -384,7 +394,7 @@ function M.browse_file(opts)
     picker.reload = function(_, new_cwd)
         picker.cwd = new_cwd
         local previous_prompt = picker:_get_prompt(),
-        picker:refresh(new_finder(new_cwd, "*"), { reset_prompt = true, new_prefix = new_cwd .. "> " })
+        picker:refresh(new_finder(new_cwd, "*"), { reset_prompt = true, new_prefix = build_prompt_prefix(new_cwd) })
         picker:set_prompt(previous_prompt)
     end
     picker:find()
@@ -393,7 +403,7 @@ end
 local function start_builtin(opts)
     opts = opts or {}
     opts.cwd = opts.cwd or vim.loop.cwd()
-    opts.prompt_prefix = opts.cwd .. "> "
+    opts.prompt_prefix = build_prompt_prefix(opts.cwd)
     opts.attach_mappings = opts.attach_mappings or common_mappings
     builtin[current_mode](opts)
 end

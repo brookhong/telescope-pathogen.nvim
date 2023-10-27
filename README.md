@@ -63,6 +63,7 @@ Use [lazy.nvim](https://github.com/folke/lazy.nvim)
                     ["pathogen"] = {
                         -- remove below if you want to enable it
                         use_last_search_for_live_grep = false
+                        prompt_prefix_length = 100
                     }
                 },
             })
