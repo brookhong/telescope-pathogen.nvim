@@ -339,6 +339,28 @@ function M.browse_file(opts)
         vim.cmd("cd " .. curr_picker.cwd)
         vim.cmd("tabnew term://" .. (vim.g.SHELL == nil and "zsh" or vim.g.SHELL))
     end
+    local function find_project_root()
+        for _, m in ipairs({ '.git/..' }) do
+            local root = vim.fn.finddir(m, vim.fn.expand('%:p:h')..';')
+            if root ~= "" then
+                return root
+            end
+        end
+        for _, m in ipairs({ '.git', '.gitignore' }) do
+            local root = vim.fn.findfile(m, vim.fn.expand('%:p:h')..';')
+            if root ~= "" then
+                root = root:gsub("/[^/]*$", "")
+                return root
+            end
+        end
+    end
+    local function goto_project_root(prompt_bufnr)
+        local root = find_project_root()
+        if root ~= nil and root ~= "" then
+            local curr_picker = state.get_current_picker(prompt_bufnr)
+            curr_picker:reload(root)
+        end
+    end
     local picker = pickers.new(opts, {
         prompt_title = opts.prompt_title,
         prompt_prefix = opts.cwd .. "> ",
@@ -350,6 +372,7 @@ function M.browse_file(opts)
             map("i", "<CR>", pickit)
             map("i", "<Tab>", pickit)
             map("i", ",", edit_path)
+            map("i", "<C-]>", goto_project_root)
             map("i", "<C-e>", live_grep)
             map("i", "<C-f>", find_files)
             map("i", "<A-c>", create_file)
