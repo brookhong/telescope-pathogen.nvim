@@ -139,6 +139,9 @@ local function common_mappings(prompt_bufnr, map)
                 picker.attach_mappings(prompt_bufnr, map)
                 -- vim.keymap.del('i', "<C-b>", { buffer = prompt_bufnr })
                 map("i", "<C-b>", function()
+                    -- ~/.local/share/nvim/lazy/telescope.nvim/lua/telescope/pickers.lua:1330
+                    -- keep status_updater work
+                    picker.closed = nil
                     picker:find()
                 end)
                 return true
