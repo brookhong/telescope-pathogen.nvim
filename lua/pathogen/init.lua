@@ -1,4 +1,5 @@
 local actions = require("telescope.actions")
+local Path = require("plenary.path")
 local builtin = require("telescope.builtin")
 local conf = require("telescope.config").values
 local finders = require("telescope.finders")
@@ -109,11 +110,18 @@ local function common_mappings(prompt_bufnr, map)
         end
 
         local prompt_title = picker.prompt_title
-        local entry_maker = prompt_title:sub(1, 10)  == "Find Files" and make_entry.gen_from_file or make_entry.gen_from_vimgrep
+        local entry_maker
+        if string.match(prompt_title, '^Browse file$') ~= nil then
+            entry_maker = gen_from_file_browser(picker.cwd)
+        elseif string.match(prompt_title, '^Find Files$') ~= nil then
+            entry_maker = make_entry.gen_from_file({ cwd = picker.cwd })
+        else
+            entry_maker = make_entry.gen_from_vimgrep({ cwd = picker.cwd })
+        end
         local new_finder = function()
             return finders.new_table({
                 results = results,
-                entry_maker = entry_maker({ cwd = picker.cwd })
+                entry_maker = entry_maker
             })
         end
 
@@ -190,6 +198,53 @@ local function common_mappings(prompt_bufnr, map)
     return true
 end
 
+local lookup_keys = {
+    ordinal = 1,
+    value = 1,
+}
+local displayer = require("telescope.pickers.entry_display").create {
+    separator = " ",
+    items = {
+        { width = 2 },
+        { width = 31 },
+        { remaining = true },
+    },
+}
+function gen_from_file_browser(cwd)
+    local mt_file_entry = {}
+
+    mt_file_entry.cwd = cwd
+    mt_file_entry.display = function(entry)
+        return displayer {
+            entry.kind,
+            { entry.mtime, "TelescopePreviewDate" },
+            { entry.value, entry.kind == "📁" and "Directory" or "" },
+        }
+    end
+
+    mt_file_entry.__index = function(t, k)
+        local raw = rawget(mt_file_entry, k)
+        if raw then
+            return raw
+        end
+
+        if k == "kind" then
+            local fp = Path:new({ cwd, rawget(t, 1) }):absolute()
+            return vim.fn.isdirectory(fp) == 1 and "📁" or " "
+        elseif k == "mtime" then
+            local fp = Path:new({ cwd, rawget(t, 1) }):absolute()
+            return vim.fn.strftime("%c", vim.fn.getftime(fp))
+        elseif k == "path" then
+            local fp = Path:new({ cwd, rawget(t, 1) }):absolute()
+            return fp
+        end
+        return rawget(t, rawget(lookup_keys, k))
+    end
+
+    return function(line)
+        return setmetatable({ line }, mt_file_entry)
+    end
+end
 
 function M.browse_file(opts)
     current_mode = "browse_file"
@@ -212,40 +267,21 @@ function M.browse_file(opts)
             end
             table.insert(t, {
                 value = string.sub(vim.fs.normalize(f), offset),
-                mtime = vim.fn.getftime(f),
-                kind = vim.fn.isdirectory(f) == 1 and "📁" or " "
+                mtime = vim.fn.getftime(f)
             })
         end
         table.sort(t, function(a, b) return a.mtime > b.mtime end)
+        content = t
+        t = {}
+        for _, e in ipairs(content) do
+            table.insert(t, e.value)
+        end
         return t
     end
-    local displayer = require("telescope.pickers.entry_display").create {
-        separator = " ",
-        items = {
-            { width = 2 },
-            { width = 31 },
-            { remaining = true },
-        },
-    }
     local new_finder = function(cwd, pattern)
         return finders.new_table({
             results = ls1(cwd, pattern),
-            entry_maker = function(entry)
-                return {
-                    ordinal = entry.value .. (entry.kind == "📁" and "/" or ""),
-                    value = entry.value,
-                    mtime = vim.fn.strftime("%c", entry.mtime),
-                    kind = entry.kind,
-                    path = cwd .. "/" .. entry.value, -- for default actions like select_horizontal
-                    display = function(entry)
-                        return displayer {
-                            entry.kind,
-                            { entry.mtime, "TelescopePreviewDate" },
-                            { entry.value, entry.kind == "📁" and "Directory" or "" },
-                        }
-                    end,
-                }
-            end
+            entry_maker = gen_from_file_browser(cwd)
         })
     end
     local pickit = function(prompt_bufnr)
@@ -381,7 +417,6 @@ function M.browse_file(opts)
         previewer = conf.file_previewer(opts),
         sorter = conf.generic_sorter({}),
         attach_mappings = function(_, map)
-            -- vim.fn.iunmap
             map("i", "<CR>", pickit)
             map("i", "<Tab>", pickit)
             map("i", ",", edit_path)
