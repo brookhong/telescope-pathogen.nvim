@@ -32,6 +32,29 @@
 
 [Showcase on Youtube](https://www.youtube.com/watch?v=cCeIuBG4vYM)
 
+Two functions `grep_in_result` and `invert_grep_in_result` are exported by the extension, you can create your own mappings for a specified telescope picker, for example, the below settings is to use `C-e` to invert grep in result from `Telescope loclist`.
+
+    {
+        "nvim-telescope/telescope.nvim",
+        dependencies = {
+            { "brookhong/telescope-pathogen.nvim" },
+        },
+        config = function()
+            local pathogen = require("telescope").load_extension("pathogen")
+            require("telescope").setup({
+                pickers = {
+                    loclist = {
+                        attach_mappings = function(prompt_bufnr, map)
+                            map("i", "<C-i>", pathogen.grep_in_result)
+                            map("i", "<C-e>", pathogen.invert_grep_in_result)
+                            return true
+                        end,
+                    },
+                },
+            })
+        end,
+    },
+
 ### file browser
 
 A quick ui within telescope to pick up file or directory.

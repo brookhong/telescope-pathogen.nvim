@@ -8,6 +8,7 @@ local pickers = require("telescope.pickers")
 local sorters = require("telescope.sorters")
 local make_entry = require("telescope.make_entry")
 local popup = require("plenary.popup")
+local log = require("telescope.log")
 local flatten = vim.tbl_flatten
 
 local M = {
@@ -58,6 +59,86 @@ local function get_parent_dir(dir)
     return vim.fn.fnamemodify((vim.fs.normalize(dir)):gsub("(\\S*)/*$", "%1"), ":h")
 end
 
+local function grep_in_result_impl(prompt_bufnr, kind, sorter)
+    local picker = state.get_current_picker(prompt_bufnr)
+    local results = {}
+    for entry in picker.manager:iter() do
+        if entry[1] then
+            results[#results + 1] = entry[1]
+        elseif entry.filename and entry.lnum and entry.col and entry.text then
+            results[#results + 1] = string.format("%s:%d:%d:%s", entry.filename, entry.lnum, entry.col, entry.text)
+        else
+            log.error("invalid entry:", vim.inspect(entry))
+        end
+    end
+    if #results < 2 then
+        return
+    end
+
+    local prompt_title = picker.prompt_title
+    local entry_maker
+    if string.match(prompt_title, '^Browse file$') ~= nil then
+        entry_maker = gen_from_file_browser(picker.cwd)
+    elseif string.match(prompt_title, '^Find Files$') ~= nil then
+        entry_maker = make_entry.gen_from_file({ cwd = picker.cwd })
+    else
+        entry_maker = make_entry.gen_from_vimgrep({ cwd = picker.cwd })
+    end
+    local new_finder = function()
+        return finders.new_table({
+            results = results,
+            entry_maker = entry_maker
+        })
+    end
+
+    local new_prompt_title = ""
+    local last_kind = prompt_title:sub(-1)
+    if last_kind == "+" or last_kind == "-" then
+        if picker:_get_prompt() == "" then
+            return
+        else
+            new_prompt_title = prompt_title .. picker:_get_prompt() .. " " .. kind
+        end
+    else
+        new_prompt_title = prompt_title .. " : " .. picker:_get_prompt() .. " " .. kind
+    end
+
+    -- print("picker", vim.inspect(picker))
+    local new_picker = pickers.new({ cwd = picker.cwd }, {
+        prompt_title = new_prompt_title,
+        finder = new_finder(),
+        previewer = picker.previewer,
+        sorter = sorter,
+        attach_mappings = function(prompt_bufnr, map)
+            picker.attach_mappings(prompt_bufnr, map)
+            -- vim.keymap.del('i', "<C-b>", { buffer = prompt_bufnr })
+            map("i", "<C-b>", function()
+                -- ~/.local/share/nvim/lazy/telescope.nvim/lua/telescope/pickers.lua:1330
+                -- keep status_updater work
+                picker.closed = nil
+                picker:find()
+            end)
+            return true
+        end,
+    })
+    new_picker:find()
+end
+function M.grep_in_result(prompt_bufnr)
+    grep_in_result_impl(prompt_bufnr, "+", sorters.get_substr_matcher())
+end
+function M.invert_grep_in_result(prompt_bufnr)
+    grep_in_result_impl(prompt_bufnr, "-", sorters.Sorter:new {
+        discard = false,
+
+        scoring_function = function(_, prompt, line)
+            if prompt ~= "" and string.find(line, prompt) then
+                return -1
+            end
+            return 1
+        end,
+    })
+end
+
 local cwd_stack = {}
 local previous_mode
 local word_match = "-w"
@@ -99,84 +180,11 @@ local function common_mappings(prompt_bufnr, map)
             end
         end
     end
-    local function grep_in_result_impl(prompt_bufnr, kind, sorter)
-        local picker = state.get_current_picker(prompt_bufnr)
-        local results = {}
-        for entry in picker.manager:iter() do
-            results[#results + 1] = entry[1]
-        end
-        if #results < 2 then
-            return
-        end
-
-        local prompt_title = picker.prompt_title
-        local entry_maker
-        if string.match(prompt_title, '^Browse file$') ~= nil then
-            entry_maker = gen_from_file_browser(picker.cwd)
-        elseif string.match(prompt_title, '^Find Files$') ~= nil then
-            entry_maker = make_entry.gen_from_file({ cwd = picker.cwd })
-        else
-            entry_maker = make_entry.gen_from_vimgrep({ cwd = picker.cwd })
-        end
-        local new_finder = function()
-            return finders.new_table({
-                results = results,
-                entry_maker = entry_maker
-            })
-        end
-
-        local new_prompt_title = ""
-        local last_kind = prompt_title:sub(-1)
-        if last_kind == "+" or last_kind == "-" then
-            if picker:_get_prompt() == "" then
-                return
-            else
-                new_prompt_title = prompt_title .. picker:_get_prompt() .. " " .. kind
-            end
-        else
-            new_prompt_title = prompt_title .. " : " .. picker:_get_prompt() .. " " .. kind
-        end
-
-        -- print("picker", vim.inspect(picker))
-        local new_picker = pickers.new({ cwd = picker.cwd }, {
-            prompt_title = new_prompt_title,
-            finder = new_finder(),
-            previewer = picker.previewer,
-            sorter = sorter,
-            attach_mappings = function(prompt_bufnr, map)
-                picker.attach_mappings(prompt_bufnr, map)
-                -- vim.keymap.del('i', "<C-b>", { buffer = prompt_bufnr })
-                map("i", "<C-b>", function()
-                    -- ~/.local/share/nvim/lazy/telescope.nvim/lua/telescope/pickers.lua:1330
-                    -- keep status_updater work
-                    picker.closed = nil
-                    picker:find()
-                end)
-                return true
-            end,
-        })
-        new_picker:find()
-    end
-    local function grep_in_result(prompt_bufnr)
-        grep_in_result_impl(prompt_bufnr, "+", sorters.get_substr_matcher())
-    end
-    local function invert_grep_in_result(prompt_bufnr)
-        grep_in_result_impl(prompt_bufnr, "-", sorters.Sorter:new {
-            discard = false,
-
-            scoring_function = function(_, prompt, line)
-                if prompt ~= "" and string.find(line, prompt) then
-                    return -1
-                end
-                return 1
-            end,
-        })
-    end
     map("i", "<C-o>", proceed_with_parent_dir)
     map("i", "<C-l>", revert_back_last_dir)
     map("i", "<C-b>", change_working_directory)
-    map("i", "<C-1>", grep_in_result)
-    map("i", "<C-0>", invert_grep_in_result)
+    map("i", "<C-1>", M.grep_in_result)
+    map("i", "<C-0>", M.invert_grep_in_result)
     if current_mode == "grep_string" then
         local function toggle_word_match(prompt_bufnr)
             word_match = word_match == nil and "-w" or nil
@@ -389,9 +397,11 @@ function M.browse_file(opts)
         vim.cmd("tabnew term://" .. (vim.g.SHELL == nil and "zsh" or vim.g.SHELL))
     end
     local function find_project_root()
-        for _, m in ipairs({ '.git/..' }) do
+        for _, m in ipairs({ '.git' }) do
             local root = vim.fn.finddir(m, vim.fn.expand('%:p:h')..';')
             if root ~= "" then
+                root = vim.fs.normalize(root)
+                root = root:gsub("/[^/]*$", "")
                 return root
             end
         end
