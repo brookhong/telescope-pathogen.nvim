@@ -22,5 +22,6 @@ return telescope.register_extension {
     grep_in_files = pathogen.grep_in_files,
     grep_in_result = pathogen.grep_in_result,
     invert_grep_in_result = pathogen.invert_grep_in_result,
+    find_project_root = pathogen.find_project_root,
   },
 }

@@ -36,6 +36,7 @@ function build_prompt_prefix(path)
 end
 
 local current_mode
+local reusable_opts = {}
 local function reload_picker(curr_picker, prompt_bufnr, cwd)
     if current_mode == "browse_file" then
         return curr_picker:reload(cwd)
@@ -49,6 +50,9 @@ local function reload_picker(curr_picker, prompt_bufnr, cwd)
     if current_mode == "grep_string" then
         opts.search = __last_search
     end
+    for k,v in pairs(reusable_opts) do
+        opts[k] = v
+    end
     actions.close(prompt_bufnr)
     builtin[current_mode](opts)
 end
@@ -56,7 +60,7 @@ local function get_parent_dir(dir)
     if dir == "" or dir == "/" or string.match(dir, "^[A-z]:/$") ~= nil then
         return dir
     end
-    return vim.fn.fnamemodify((vim.fs.normalize(dir)):gsub("(\\S*)/*$", "%1"), ":h")
+    return vim.fn.fnamemodify(vim.fs.normalize(dir), ":h")
 end
 
 local function grep_in_result_impl(prompt_bufnr, kind, sorter)
@@ -254,6 +258,23 @@ function gen_from_file_browser(cwd)
     end
 end
 
+function M.find_project_root()
+    for _, m in ipairs({ '.git' }) do
+        local root = vim.fn.finddir(m, vim.fn.expand('%:p:h')..';')
+        if root ~= "" then
+            root = vim.fs.normalize(root)
+            root = root:gsub("/[^/]*$", "")
+            return root
+        end
+    end
+    for _, m in ipairs({ '.git', '.gitignore' }) do
+        local root = vim.fn.findfile(m, vim.fn.expand('%:p:h')..';')
+        if root ~= "" then
+            root = root:gsub("/[^/]*$", "")
+            return root
+        end
+    end
+end
 function M.browse_file(opts)
     current_mode = "browse_file"
     opts.prompt_title = opts.prompt_title or "Browse file"
@@ -396,25 +417,8 @@ function M.browse_file(opts)
         vim.cmd("cd " .. curr_picker.cwd)
         vim.cmd("tabnew term://" .. (vim.g.SHELL == nil and "zsh" or vim.g.SHELL))
     end
-    local function find_project_root()
-        for _, m in ipairs({ '.git' }) do
-            local root = vim.fn.finddir(m, vim.fn.expand('%:p:h')..';')
-            if root ~= "" then
-                root = vim.fs.normalize(root)
-                root = root:gsub("/[^/]*$", "")
-                return root
-            end
-        end
-        for _, m in ipairs({ '.git', '.gitignore' }) do
-            local root = vim.fn.findfile(m, vim.fn.expand('%:p:h')..';')
-            if root ~= "" then
-                root = root:gsub("/[^/]*$", "")
-                return root
-            end
-        end
-    end
     local function goto_project_root(prompt_bufnr)
-        local root = find_project_root()
+        local root = M.find_project_root()
         if root ~= nil and root ~= "" then
             local curr_picker = state.get_current_picker(prompt_bufnr)
             curr_picker:reload(root)
@@ -453,6 +457,10 @@ local function start_builtin(opts)
     opts.cwd = opts.cwd or vim.loop.cwd()
     opts.prompt_prefix = build_prompt_prefix(opts.cwd)
     opts.attach_mappings = opts.attach_mappings or common_mappings
+
+    if opts.additional_args then
+        reusable_opts.additional_args = opts.additional_args
+    end
     builtin[current_mode](opts)
 end
 
