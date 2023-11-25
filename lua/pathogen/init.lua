@@ -525,44 +525,106 @@ local function unique(a)
     return res
 end
 
-local function launch_search_list_editor(search_list)
+function M.edit_in_popup(title, lines, opts)
+    opts = opts or {}
+    local p_height = vim.api.nvim_win_get_height(0)
+    local p_width = vim.api.nvim_win_get_width(0)
+    local height = p_height > 20 and 20 or p_height
+    local width = p_width > 120 and 120 or p_width
+    local maxheight = p_height - 6
+    maxheight = maxheight > height and maxheight or height
+    local maxwidth = p_width - 6
+    maxwidth = maxwidth > width and maxwidth or width
+    local win_id = popup.create(lines, {
+        minheight = height,
+        width = width,
+        maxheight = maxheight,
+        maxwidth = maxwidth,
+        border = true,
+        title = title,
+        highlight = "PopupColor",
+        finalize_callback = function(win_id, bufnr)
+            vim.fn.execute(":set relativenumber")
+        end
+    })
+    local popup_bufnr = vim.api.nvim_win_get_buf(win_id)
+    vim.api.nvim_create_autocmd("BufLeave", {
+        buffer = popup_bufnr,
+        nested = true,
+        once = true,
+        callback = function()
+            vim.api.nvim_win_close(win_id, true)
+        end,
+    })
+
+    local bufopts = { noremap=true, silent=true, buffer=popup_bufnr }
+    local function popup_buf_map(mode, key, fn)
+        vim.keymap.set(mode, key, fn, bufopts)
+    end
+    popup_buf_map("n", "<c-c>", function()
+        vim.api.nvim_win_close(win_id, true)
+    end)
+    popup_buf_map("n", "<CR>", function()
+        local new_list = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+        vim.api.nvim_win_close(win_id, true)
+        if opts.exit then
+            opts.exit(new_list)
+        end
+    end)
+    if opts.attach then
+        opts.attach(popup_buf_map)
+    end
+end
+
+local function edit_qflist(type)
+    local loc_list = {}
+    local items = type == "location" and vim.fn.getloclist(0) or vim.fn.getqflist()
+    if #items == 0 then
+        print(string.format("%s list is empty.", type))
+        return
+    end
+    for _, data in ipairs(items) do
+        loc_list[#loc_list + 1] = string.format("%s:%d:%d:%s", vim.fn.bufname(data['bufnr']), data.lnum, data.col, data.text)
+    end
+
+    local title = string.format("Edit %s list, <CR> to write, <c-c> to abort.", type)
+    M.edit_in_popup(title, loc_list, {
+        exit = function(new_list)
+            vim.g._lgetexpr_lines = new_list
+            vim.fn.execute(string.format(":%sgetexpr g:_lgetexpr_lines", type == "location" and "l" or "c"))
+            vim.g._lgetexpr_lines = nil
+        end
+    })
+end
+
+function M.edit_loclist()
+    edit_qflist("location")
+end
+
+function M.edit_qflist()
+    edit_qflist("qf")
+end
+
+local function launch_search_list_editor()
     local search_list = {}
     local file_list_cache = vim.fn.stdpath('cache') .. '/telescope-pathogen.search_list'
     if vim.fn.filereadable(file_list_cache) == 1 then
         search_list = vim.fn.readfile(file_list_cache)
     end
 
-    local win_id = popup.create(search_list, {
-        minheight = 20,
-        maxheight = 20,
-        width = 120,
-        border = true,
-        title = "Edit the file list to search, with one file each line, <CR> to continue, <c-c> to abort.",
-        highlight = "PopupColor",
+    local title = "Edit the file list to search, with one file each line, <CR> to continue, <c-c> to abort."
+    M.edit_in_popup(title, search_list, {
+        attach = function(popup_buf_map)
+            popup_buf_map("n", "<CR>", function()
+                vim.cmd("%s/|\\d\\+ .*//e")
+                search_list = unique(vim.api.nvim_buf_get_lines(0, 0, -1, false))
+                vim.fn.writefile(search_list, file_list_cache)
+                grep_in_files({
+                    search_list = search_list
+                })
+            end)
+        end
     })
-    local search_list_bufnr = vim.api.nvim_win_get_buf(win_id)
-    vim.api.nvim_create_autocmd("BufLeave", {
-        buffer = search_list_bufnr,
-        nested = true,
-        once = true,
-        callback = function()
-            -- vim.api.nvim_buf_delete(search_list_bufnr, { force = true })
-            vim.api.nvim_win_close(win_id, true)
-        end,
-    })
-
-    local bufopts = { noremap=true, silent=true, buffer=search_list_bufnr }
-    vim.keymap.set("n", "<CR>", function()
-        vim.cmd("%s/|\\d\\+ .*//e")
-        search_list = unique(vim.api.nvim_buf_get_lines(0, 0, -1, false))
-        vim.fn.writefile(search_list, file_list_cache)
-        grep_in_files({
-            search_list = search_list
-        })
-    end, bufopts)
-    vim.keymap.set("n", "<c-c>", function()
-        vim.api.nvim_win_close(win_id, true)
-    end, bufopts)
 end
 
 function M.grep_in_files(opts)

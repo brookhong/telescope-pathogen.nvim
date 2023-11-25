@@ -23,5 +23,8 @@ return telescope.register_extension {
     grep_in_result = pathogen.grep_in_result,
     invert_grep_in_result = pathogen.invert_grep_in_result,
     find_project_root = pathogen.find_project_root,
+    edit_in_popup = pathogen.edit_in_popup,
+    edit_loclist = pathogen.edit_loclist,
+    edit_qflist = pathogen.edit_qflist,
   },
 }
