@@ -26,34 +26,11 @@
 ![grep_in_files](https://github.com/brookhong/telescope-pathogen.nvim/assets/288207/05f54ddb-06ee-4951-8bef-d30cf178035e)
 
 * Continuous search to help you continuously search in previous search result to generate a new result which should include or exclude another pattern, which works for both `live_grep` and `grep_string`.
-    * `Ctrl-0` to initiate another search(invert grep) among the previous results to exclude another pattern.
-    * `Ctrl-1` to initiate another search(grep) among the previous results to include another pattern.
+    * `Ctrl-g i` to initiate another search(invert grep) among the previous results to exclude another pattern.
+    * `Ctrl-g g` to initiate another search(grep) among the previous results to include another pattern.
     * `Ctrl-b` to go back to previous search.
 
 [Showcase on Youtube](https://www.youtube.com/watch?v=cCeIuBG4vYM)
-
-Two functions `grep_in_result` and `invert_grep_in_result` are exported by the extension, you can create your own mappings for a specified telescope picker, for example, the below settings is to use `C-e` to invert grep in result from `Telescope loclist`.
-
-    {
-        "nvim-telescope/telescope.nvim",
-        dependencies = {
-            { "brookhong/telescope-pathogen.nvim" },
-        },
-        config = function()
-            local pathogen = require("telescope").load_extension("pathogen")
-            require("telescope").setup({
-                pickers = {
-                    loclist = {
-                        attach_mappings = function(prompt_bufnr, map)
-                            map("i", "<C-i>", pathogen.grep_in_result)
-                            map("i", "<C-e>", pathogen.invert_grep_in_result)
-                            return true
-                        end,
-                    },
-                },
-            })
-        end,
-    },
 
 ### file browser
 
@@ -65,9 +42,9 @@ A quick ui within telescope to pick up file or directory.
 * `C-o` navigate to parent directory.
 * `C-e` trigger `live_grep` within picked directory.
 * `C-f` trigger `find_files` within picked directory.
-* `A-c` copy current selection to another file or create a new file.
-* `A-d` delete current selection.
-* `A-t` open terminal from current working directory.
+* `C-g c` copy current selection to another file or create a new file.
+* `C-g d` delete current selection.
+* `C-g t` open terminal from current working directory.
 
 ![d](https://user-images.githubusercontent.com/288207/225836274-713eb4ee-1330-4dc6-9649-47701b993081.gif)
 
@@ -84,8 +61,15 @@ Use [lazy.nvim](https://github.com/folke/lazy.nvim)
             require("telescope").setup({
                 extensions = {
                     ["pathogen"] = {
+                        attach_mappings = function(map, actions)
+                            map("i", "<C-o>", actions.proceed_with_parent_dir)
+                            map("i", "<C-l>", actions.revert_back_last_dir)
+                            map("i", "<C-b>", actions.change_working_directory)
+                            map("i", "<C-g>g", actions.grep_in_result)
+                            map("i", "<C-g>i", actions.invert_grep_in_result)
+                        end,
                         -- remove below if you want to enable it
-                        use_last_search_for_live_grep = false
+                        use_last_search_for_live_grep = false,
                         prompt_prefix_length = 100
                     }
                 },
