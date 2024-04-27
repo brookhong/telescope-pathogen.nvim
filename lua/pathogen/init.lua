@@ -9,6 +9,7 @@ local popup = require("plenary.popup")
 local sorters = require("telescope.sorters")
 local state = require("telescope.actions.state")
 local telescope_actions = require("telescope.actions")
+local quick_buffer = require("pathogen.quickbuffer")
 
 local flatten = vim.tbl_flatten
 
@@ -22,6 +23,8 @@ local M = {
             map("i", "<C-g>i", actions.invert_grep_in_result)
         end,
         use_last_search_for_live_grep = true,
+        quick_buffer_characters = "asdfgqwertzxcvb",
+        buf_name_length = 30,
         prompt_prefix_length = 100
     }
 }
@@ -612,7 +615,7 @@ function M.edit_qflist()
     edit_qflist("qf")
 end
 
-local function launch_search_list_editor()
+function M.grep_in_files(opts)
     local search_list = {}
     local file_list_cache = vim.fn.stdpath('cache') .. '/telescope-pathogen.search_list'
     if vim.fn.filereadable(file_list_cache) == 1 then
@@ -634,8 +637,9 @@ local function launch_search_list_editor()
     })
 end
 
-function M.grep_in_files(opts)
-    launch_search_list_editor()
+function M.quick_buffer(opts)
+    quick_buffer.config = M.config
+    quick_buffer.quickBuffers()
 end
 
 return M

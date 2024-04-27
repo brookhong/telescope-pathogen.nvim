@@ -20,6 +20,7 @@ return telescope.register_extension {
     find_files = pathogen.find_files,
     live_grep = pathogen.live_grep,
     grep_in_files = pathogen.grep_in_files,
+    quick_buffer = pathogen.quick_buffer,
     find_project_root = pathogen.find_project_root,
     edit_loclist = pathogen.edit_loclist,
     edit_qflist = pathogen.edit_qflist,

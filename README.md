@@ -48,6 +48,15 @@ A quick ui within telescope to pick up file or directory.
 
 ![d](https://user-images.githubusercontent.com/288207/225836274-713eb4ee-1330-4dc6-9649-47701b993081.gif)
 
+### quick buffer
+
+A swift way to switch buffer or pick recently opened file, use `Telescope pathogen quick_buffer` to launch it, which will list current buffers and some recently opened files, with each prefixed with a label. You can then press the labelled key(s) to switch to a buffer or open a file, if a key not from the labels are pressed, `Telescope oldfiles` will be launched for you to search old files.
+
+The idea comes from [Switch tabs](https://github.com/brookhong/Surfingkeys?tab=readme-ov-file#switch-tabs) feature of Surfingkeys.
+
+![quick_buffer](https://github.com/brookhong/telescope-pathogen.nvim/assets/288207/51d060af-34be-4fba-a0f1-294404cdcff4)
+
+
 ## 📦 Installation
 
 Use [lazy.nvim](https://github.com/folke/lazy.nvim)
