@@ -24,7 +24,6 @@ local M = {
         end,
         use_last_search_for_live_grep = true,
         quick_buffer_characters = "asdfgqwertzxcvb",
-        buf_name_length = 30,
         prompt_prefix_length = 100
     }
 }

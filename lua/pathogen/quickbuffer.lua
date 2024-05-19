@@ -3,7 +3,7 @@ local api = vim.api
 
 local M = {}
 
-local BUF_NAME_MARK = "?"
+local BUF_NAME_MARK = "　➜ "
 
 local genLabels = function(total)
     local characters = M.config.quick_buffer_characters
@@ -37,11 +37,11 @@ local buildMarks = function(bnr, ns_id, data)
     local labels = genLabels(#found)
     local marks = {}
     local opts = {
-      virt_text = {{"demo", "IncSearch"}},
+      virt_text = {{"demo", "Search"}},
       virt_text_pos = 'overlay',
     }
     for i, pos in ipairs(found) do
-        opts.virt_text = {{labels[i], "IncSearch"}}
+        opts.virt_text = {{labels[i], "Search"}}
         marks[#marks + 1] = {
             id = api.nvim_buf_set_extmark(bnr, ns_id, pos[1] - 1, pos[2] - 1, opts),
             data = data[i],
@@ -53,8 +53,19 @@ local buildMarks = function(bnr, ns_id, data)
     return marks
 end
 
-local buildLinesForBuffers = function()
+local function build_path(path, max_len)
+    if #path > max_len then
+        return "…"..path:sub(-max_len+1).."»"
+    else
+        return path.."»"
+    end
+end
+
+local buildLinesForBuffers = function(max_width)
     local bufs = vim.fn.getbufinfo { buflisted = true }
+    if #bufs == 1 then
+        return {}, {}, 0
+    end
     table.sort(bufs, function(a, b)
         return a.name < b.name
     end)
@@ -62,7 +73,7 @@ local buildLinesForBuffers = function()
     local bufGroups = {}
     local dirs = {}
     for i, buf in ipairs(bufs) do
-        local dir = string.match(buf.name, ".*/")
+        local dir = string.match(vim.fs.normalize(buf.name), ".*/")
         if dir == nil then
             dir = "[No Name]"
         end
@@ -75,23 +86,51 @@ local buildLinesForBuffers = function()
     end
 
     table.sort(dirs)
-    local lines = {"================Buffers================="}
+    local bnr = vim.fn.bufnr('%')
+    local lines = {""}
     local bufNrs = {}
+    local markTotal = 0
     for _, dir in ipairs(dirs) do
-        lines[#lines + 1] = dir
+        lines[#lines + 1] = build_path(dir, max_width - 1)
         local files = "|"
         for i, buf in ipairs(bufGroups[dir]) do
-            local name = string.match(buf.name, ".*/(.*)")
+            local name = string.match(vim.fs.normalize(buf.name), ".*/(.*)")
             if name == nil then
                 name = buf.name
             end
-            files = files.." "..BUF_NAME_MARK.."  ➜ "..name.." |"
+            if buf.bufnr == bnr then
+                files = files.." "..BUF_NAME_MARK..name.."*|"
+            else
+                files = files.." "..BUF_NAME_MARK..name.." |"
+            end
+            markTotal = markTotal + 1
             bufNrs[#bufNrs + 1] = buf.bufnr
         end
         lines[#lines + 1] = files
     end
     lines[#lines + 1] = ""
-    return lines, bufNrs
+    return lines, bufNrs, markTotal
+end
+
+local setTitle = function(lines, width, title)
+    local TITLE_MARK = string.rep("=", (width - #title) / 2 )
+    lines[1] = TITLE_MARK..title..TITLE_MARK
+end
+local layout = function(lines, max_width)
+    local width = 0
+    for _, line in ipairs(lines) do
+        if #line >= max_width then
+            width = max_width
+            break
+        elseif #line > width then
+            width = #line
+        end
+    end
+    local height = 1
+    for _, line in ipairs(lines) do
+        height = height + math.ceil(#line / width)
+    end
+    return width, height
 end
 
 local function has_value(tab, val)
@@ -104,7 +143,7 @@ local function has_value(tab, val)
     return false
 end
 
-local buildLinesForOldFiles = function(num, lineTotal)
+local buildLinesForOldFiles = function(num, lineTotal, max_width)
     local bufs = vim.fn.getbufinfo { buflisted = true }
     local bufNames = {}
     for i, buf in ipairs(bufs) do
@@ -119,7 +158,7 @@ local buildLinesForOldFiles = function(num, lineTotal)
             string.match(f, "/$") == nil and
             vim.fn.filereadable(f) == 1 and
             not has_value(bufNames, f) then
-            oldfiles[#oldfiles + 1] = f
+            oldfiles[#oldfiles + 1] = vim.fs.normalize(f)
             if #oldfiles > num then
                 break
             end
@@ -138,18 +177,20 @@ local buildLinesForOldFiles = function(num, lineTotal)
         bg[#bg + 1] = string.match(file, ".*/(.*)")
     end
 
-    local lines = {}
-    local lines = {"===============Old files================"}
+    local lines = {""}
     local paths = {}
+    local newLine = 1
     for _, dir in ipairs(dirs) do
-        lines[#lines + 1] = dir
+        lines[#lines + 1] = build_path(dir, max_width - 1)
+        newLine = newLine + 1
         local files = "|"
         for _, name in ipairs(groups[dir]) do
-            files = files.." "..BUF_NAME_MARK.."  ➜ "..name.." |"
+            files = files.." "..BUF_NAME_MARK..name.." |"
             paths[#paths + 1] = dir..name
         end
         lines[#lines + 1] = files
-        if #lines >= lineTotal - 1 then
+        newLine = newLine + math.ceil(#files / max_width)
+        if newLine >= lineTotal - 1 then
             break
         end
     end
@@ -164,35 +205,37 @@ local BS = vim.api.nvim_replace_termcodes("<BS>", true, true, true)
 local ESC = vim.api.nvim_replace_termcodes("<Esc>", true, true, true)
 function M.quickBuffers(config)
     -- build buffer names
-    local lines, data = buildLinesForBuffers()
-    local height = math.ceil(vim.api.nvim_win_get_height(0) / 2)
-    if #lines < height then
-        local oldFileLines, oldFilePaths = buildLinesForOldFiles(100 - #data, height - #lines)
+    local max_width = vim.api.nvim_win_get_width(0)
+    local lines, data, markTotal = buildLinesForBuffers(max_width)
+    local width, height = layout(lines, max_width)
+    if markTotal > 0 then
+        setTitle(lines, width, "Buffers")
+    end
+    local max_height = vim.api.nvim_win_get_height(0) - 1
+    local max_marks = #(M.config.quick_buffer_characters)
+    if markTotal < max_marks and height < max_height then
+        local oldFileLines, oldFilePaths = buildLinesForOldFiles(max_marks - #data, max_height - height, max_width)
+        local w, h = layout(oldFileLines, max_width)
+        if w > width then
+            width = w
+            setTitle(lines, width, "Buffers")
+        end
+        setTitle(oldFileLines, width, "Old files")
         for _, f in ipairs(oldFileLines) do
             lines[#lines+1] = f
         end
         for _, n in ipairs(oldFilePaths) do
             data[#data+1] = n
         end
+        height = height + h
     end
 
     -- show buffer picker
     local original_win_id = vim.api.nvim_get_current_win()
     vim.api.nvim_buf_set_lines(buf_picker_id, 0, -1, true, lines)
-    if #lines < height then
-        height = #lines
-    end
-    local width = 5
-    for _, line in ipairs(lines) do
-        if #line > width then
-            width = #line
-        end
-    end
-    width = width + 5
-    if width > vim.api.nvim_win_get_width(0) then
-        width = vim.api.nvim_win_get_width(0)
-    end
-    local buf_picker_win_id = vim.api.nvim_open_win(buf_picker_id, false, {relative='win', row=0, col=0, width=width, height=height})
+    local buf_picker_win_id = vim.api.nvim_open_win(buf_picker_id, false, {relative='win', row=0, col=0, width=width, height=height + 2})
+    vim.wo[buf_picker_win_id].relativenumber = false
+    vim.wo[buf_picker_win_id].number = false
     vim.api.nvim_set_current_win(buf_picker_win_id )
 
     -- loop for user picking
@@ -220,6 +263,13 @@ function M.quickBuffers(config)
         local nextMatches = {}
         for _, m in ipairs(matches) do
             if m.label:sub(1, #pick) == pick then
+                local mark = api.nvim_buf_get_extmark_by_id(bnr, buf_picker_ns, m.id, { details = true })
+                local opts = {
+                  virt_text = {{"demo", "Comment"}},
+                  virt_text_pos = 'overlay',
+                }
+                opts.virt_text = {{pick, "Comment"}}
+                api.nvim_buf_set_extmark(bnr, buf_picker_ns, mark[1], mark[2], opts)
                 nextMatches[#nextMatches+1] = m
             else
                 api.nvim_buf_del_extmark(bnr, buf_picker_ns, m.id)

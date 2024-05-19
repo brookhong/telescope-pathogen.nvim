@@ -79,6 +79,7 @@ Use [lazy.nvim](https://github.com/folke/lazy.nvim)
                         end,
                         -- remove below if you want to enable it
                         use_last_search_for_live_grep = false,
+                        -- quick_buffer_characters = "asdfgqwertzxcvb",
                         prompt_prefix_length = 100
                     }
                 },
