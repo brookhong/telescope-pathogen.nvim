@@ -1,4 +1,4 @@
-syntax match Type   /.\+»$/
-syntax match Label   /　➜ \zs[^|]\+/
+syntax match Comment   /.\+»$/
+syntax match Title   /　➜ \zs[^|]\+/
 syntax match Identifier   /　➜ \zs[^\*|]\+\ze\*/
-syntax match Title   /^====.*====$/
+syntax match Comment   /^====.*====$/

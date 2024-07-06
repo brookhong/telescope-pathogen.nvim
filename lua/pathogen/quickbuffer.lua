@@ -67,7 +67,7 @@ local buildLinesForBuffers = function(max_width)
         return {}, {}, 0
     end
     table.sort(bufs, function(a, b)
-        return a.name < b.name
+        return a.lastused > b.lastused
     end)
 
     local bufGroups = {}
@@ -85,7 +85,6 @@ local buildLinesForBuffers = function(max_width)
         bg[#bg + 1] = buf
     end
 
-    table.sort(dirs)
     local bnr = vim.fn.bufnr('%')
     local lines = {""}
     local bufNrs = {}

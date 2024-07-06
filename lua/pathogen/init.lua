@@ -10,6 +10,7 @@ local sorters = require("telescope.sorters")
 local state = require("telescope.actions.state")
 local telescope_actions = require("telescope.actions")
 local quick_buffer = require("pathogen.quickbuffer")
+local scan = require("plenary.scandir")
 
 local flatten = vim.tbl_flatten
 
@@ -294,12 +295,7 @@ function M.browse_file(opts)
     opts.cwd = opts.cwd or vim.fs.normalize(vim.fn.getcwd())
     local ls1 = function(path, pattern)
         local t = {}
-        local content = vim.fn.globpath(path, pattern, false, true)
-        if pattern == "*" then
-            for _, f in ipairs(vim.fn.globpath(path, ".[^.]*", false, true)) do
-                content[#content + 1] = f
-            end
-        end
+        local content = scan.scan_dir(path, { add_dirs = true, hidden = true, depth = 1, search_pattern = pattern })
         for _, f in ipairs(content) do
             local offset = string.len(path) + 2
             if path == "/" then
@@ -340,10 +336,10 @@ function M.browse_file(opts)
                 vim.cmd("edit " .. input)
             elseif string.match(input, '^[A-z]:/?$') ~= nil then
                 curr_picker.cwd = input:gsub("/$", "") .. "/"
-                curr_picker:refresh(new_finder(curr_picker.cwd, "*"), { reset_prompt = true, new_prefix = build_prompt_prefix(curr_picker.cwd) })
+                curr_picker:refresh(new_finder(curr_picker.cwd, ""), { reset_prompt = true, new_prefix = build_prompt_prefix(curr_picker.cwd) })
             elseif vim.fn.isdirectory(input) == 1 then
                 curr_picker.cwd = input:gsub("/+$", "")
-                curr_picker:refresh(new_finder(curr_picker.cwd, "*"), { reset_prompt = true, new_prefix = build_prompt_prefix(curr_picker.cwd) })
+                curr_picker:refresh(new_finder(curr_picker.cwd, ""), { reset_prompt = true, new_prefix = build_prompt_prefix(curr_picker.cwd) })
             elseif string.match(input, "^[^/]+/.+") ~= nil then
                 input = input:gsub("/", "*/") .. "*"
                 curr_picker:refresh(new_finder(curr_picker.cwd, input), { reset_prompt = true, new_prefix = build_prompt_prefix(curr_picker.cwd) })
@@ -359,7 +355,7 @@ function M.browse_file(opts)
             local cwd = curr_picker.cwd
             cwd = (cwd):sub(-1) ~= "/" and cwd .. "/" or cwd
             cwd = cwd .. content.value
-            curr_picker:refresh(new_finder(cwd, "*"), { reset_prompt = true, new_prefix = build_prompt_prefix(cwd) })
+            curr_picker:refresh(new_finder(cwd, ""), { reset_prompt = true, new_prefix = build_prompt_prefix(cwd) })
             curr_picker.cwd = cwd
         else
             telescope_actions.close(prompt_bufnr)
@@ -440,7 +436,7 @@ function M.browse_file(opts)
     local picker = pickers.new(opts, {
         prompt_title = opts.prompt_title,
         prompt_prefix = build_prompt_prefix(opts.cwd),
-        finder = new_finder(opts.cwd, "*"),
+        finder = new_finder(opts.cwd, ""),
         previewer = conf.file_previewer(opts),
         sorter = conf.generic_sorter({}),
         attach_mappings = function(_, map)
@@ -459,7 +455,7 @@ function M.browse_file(opts)
     picker.reload = function(_, new_cwd)
         picker.cwd = new_cwd
         local previous_prompt = picker:_get_prompt(),
-        picker:refresh(new_finder(new_cwd, "*"), { reset_prompt = true, new_prefix = build_prompt_prefix(new_cwd) })
+        picker:refresh(new_finder(new_cwd, ""), { reset_prompt = true, new_prefix = build_prompt_prefix(new_cwd) })
         picker:set_prompt(previous_prompt)
     end
     picker:find()
