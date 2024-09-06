@@ -61,7 +61,7 @@ local function build_path(path, max_len)
     end
 end
 
-local buildLinesForBuffers = function(max_width)
+local buildLinesForBuffers = function(max_width, max_height)
     local bufs = vim.fn.getbufinfo { buflisted = true }
     if #bufs == 1 then
         return {}, {}, 0
@@ -89,8 +89,10 @@ local buildLinesForBuffers = function(max_width)
     local lines = {""}
     local bufNrs = {}
     local markTotal = 0
+    local height = 0
     for _, dir in ipairs(dirs) do
         lines[#lines + 1] = build_path(dir, max_width - 1)
+        height = height + 1
         local files = "|"
         for i, buf in ipairs(bufGroups[dir]) do
             local name = string.match(vim.fs.normalize(buf.name), ".*/(.*)")
@@ -106,6 +108,10 @@ local buildLinesForBuffers = function(max_width)
             bufNrs[#bufNrs + 1] = buf.bufnr
         end
         lines[#lines + 1] = files
+        height = height + math.ceil(#files / max_width)
+        if height >= max_height then
+            break
+        end
     end
     lines[#lines + 1] = ""
     return lines, bufNrs, markTotal
@@ -205,12 +211,12 @@ local ESC = vim.api.nvim_replace_termcodes("<Esc>", true, true, true)
 function M.quickBuffers(config)
     -- build buffer names
     local max_width = vim.api.nvim_win_get_width(0)
-    local lines, data, markTotal = buildLinesForBuffers(max_width)
+    local max_height = vim.api.nvim_win_get_height(0) - 2
+    local lines, data, markTotal = buildLinesForBuffers(max_width, max_height)
     local width, height = layout(lines, max_width)
     if markTotal > 0 then
         setTitle(lines, width, "Buffers")
     end
-    local max_height = vim.api.nvim_win_get_height(0) - 1
     local max_marks = #(M.config.quick_buffer_characters)
     if markTotal < max_marks and height < max_height then
         local oldFileLines, oldFilePaths = buildLinesForOldFiles(max_marks - #data, max_height - height, max_width)
