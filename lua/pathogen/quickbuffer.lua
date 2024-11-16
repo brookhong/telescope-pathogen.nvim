@@ -164,7 +164,7 @@ local buildLinesForOldFiles = function(num, lineTotal, max_width)
             vim.fn.filereadable(f) == 1 and
             not has_value(bufNames, f) then
             oldfiles[#oldfiles + 1] = vim.fs.normalize(f)
-            if #oldfiles > num then
+            if #oldfiles >= num then
                 break
             end
         end
@@ -215,7 +215,7 @@ function M.quickBuffers(config)
     local lines, data, markTotal = buildLinesForBuffers(max_width, max_height)
     local width, height = layout(lines, max_width)
     if markTotal > 0 then
-        setTitle(lines, width, "Buffers")
+        setTitle(lines, width, "Buffers|"..#data)
     end
     local max_marks = #(M.config.quick_buffer_characters)
     if markTotal < max_marks and height < max_height then
@@ -223,9 +223,9 @@ function M.quickBuffers(config)
         local w, h = layout(oldFileLines, max_width)
         if w > width then
             width = w
-            setTitle(lines, width, "Buffers")
+            setTitle(lines, width, "Buffers|"..markTotal)
         end
-        setTitle(oldFileLines, width, "Old files")
+        setTitle(oldFileLines, width, "Old files|"..#oldFilePaths)
         for _, f in ipairs(oldFileLines) do
             lines[#lines+1] = f
         end

@@ -55,8 +55,6 @@ local function reload_picker(curr_picker, prompt_bufnr, cwd)
         return curr_picker:reload(cwd)
     end
     local opts = {
-        default_text = curr_picker:_get_prompt(),
-        attach_mappings = curr_picker.attach_mappings,
         cwd = cwd,
         prompt_prefix = build_prompt_prefix(cwd),
     }
@@ -69,7 +67,7 @@ local function reload_picker(curr_picker, prompt_bufnr, cwd)
         opts[k] = v
     end
     telescope_actions.close(prompt_bufnr)
-    builtin[current_mode](opts)
+    M[current_mode](opts)
 end
 local function get_parent_dir(dir)
     if dir == "" or dir == "/" or string.match(dir, "^[A-z]:/$") ~= nil then
