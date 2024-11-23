@@ -50,11 +50,9 @@ end
 local current_mode
 local word_match = "-w"
 local reusable_opts = {}
-local function reload_picker(curr_picker, prompt_bufnr, cwd)
-    if current_mode == "browse_file" then
-        return curr_picker:reload(cwd)
-    end
+local function reload_picker(prompt, prompt_bufnr, cwd)
     local opts = {
+        default_text = prompt,
         cwd = cwd,
         prompt_prefix = build_prompt_prefix(cwd),
     }
@@ -151,34 +149,31 @@ local local_actions = {
             return
         end
         table.insert(cwd_stack, curr_picker.cwd)
-        reload_picker(curr_picker, prompt_bufnr, get_parent_dir(curr_picker.cwd))
+        reload_picker(curr_picker:_get_prompt(), prompt_bufnr, get_parent_dir(curr_picker.cwd))
     end,
     revert_back_last_dir = function(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
         if #cwd_stack == 0 then
             return
         end
-        reload_picker(curr_picker, prompt_bufnr, table.remove(cwd_stack, #cwd_stack))
+        reload_picker(curr_picker:_get_prompt(), prompt_bufnr, table.remove(cwd_stack, #cwd_stack))
     end,
     change_working_directory = function(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
 
-        if previous_mode then
-            if previous_mode == "browse_file" then
-                M.browse_file({ cwd = curr_picker.cwd })
-            else
-                current_mode = previous_mode
-                reload_picker(curr_picker, prompt_bufnr, curr_picker.cwd)
-            end
+        -- clear leftover status
+        if previous_mode == current_mode then
             previous_mode = nil
-        else
-            if current_mode == "browse_file" then
-                return
-            else
-                telescope_actions.close(prompt_bufnr)
-                previous_mode = current_mode
-                M.browse_file({ cwd = curr_picker.cwd, only_dir = true, prompt_title = "Browse directory" })
-            end
+        end
+
+        if previous_mode then
+            current_mode = previous_mode
+            reload_picker(curr_picker:_get_prompt(), prompt_bufnr, curr_picker.cwd)
+            previous_mode = nil
+        elseif current_mode ~= "browse_file" then
+            telescope_actions.close(prompt_bufnr)
+            previous_mode = current_mode
+            M.browse_file({ cwd = curr_picker.cwd, only_dir = true, prompt_title = "Browse directory" })
         end
     end,
     grep_in_result = function(prompt_bufnr)
@@ -270,19 +265,16 @@ function gen_from_file_browser(cwd)
 end
 
 function M.find_project_root()
-    for _, m in ipairs({ '.git' }) do
-        local root = vim.fn.finddir(m, vim.fn.expand('%:p:h')..';')
-        if root ~= "" then
-            root = vim.fs.normalize(root)
-            root = root:gsub("/[^/]*$", "")
-            return root
+    local path = vim.fn.expand('%:p:h')
+    while path ~= "" do
+        path = path:gsub("/[^/]+$", "")
+        if vim.fn.isdirectory(path.."/.git") == 1 then
+            return path
         end
-    end
-    for _, m in ipairs({ '.git', '.gitignore' }) do
-        local root = vim.fn.findfile(m, vim.fn.expand('%:p:h')..';')
-        if root ~= "" then
-            root = root:gsub("/[^/]*$", "")
-            return root
+        for _, m in ipairs({ '.git', '.gitignore' }) do
+            if vim.fn.filereadable(path.."/"..m) == 1 then
+                return path
+            end
         end
     end
 end
@@ -371,7 +363,6 @@ function M.browse_file(opts)
     local function find_files(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
         telescope_actions.close(prompt_bufnr)
-        previous_mode = current_mode
         M.find_files({
             cwd = curr_picker.cwd
         })
@@ -379,7 +370,6 @@ function M.browse_file(opts)
     local function live_grep(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
         telescope_actions.close(prompt_bufnr)
-        previous_mode = current_mode
         M.live_grep({
             cwd = curr_picker.cwd
         })
@@ -491,7 +481,7 @@ end
 function M.live_grep(opts)
     current_mode = "live_grep"
     opts = opts or {}
-    if M.config.use_last_search_for_live_grep then
+    if opts.default_text == nil and M.config.use_last_search_for_live_grep then
         opts.default_text = vim.fn.getreg("/"):gsub("\\<([^\\]+)\\>", "%1")
     end
     start_builtin(opts)
