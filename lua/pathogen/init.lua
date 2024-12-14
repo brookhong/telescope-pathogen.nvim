@@ -265,7 +265,7 @@ function gen_from_file_browser(cwd)
 end
 
 function M.find_project_root()
-    local path = vim.fn.expand('%:p:h')
+    local path = vim.fs.normalize(vim.fn.expand('%:p:h'))
     while path ~= "" do
         path = path:gsub("/[^/]+$", "")
         if vim.fn.isdirectory(path.."/.git") == 1 then
