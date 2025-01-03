@@ -264,8 +264,10 @@ function gen_from_file_browser(cwd)
     end
 end
 
-function M.find_project_root()
-    local path = vim.fs.normalize(vim.fn.expand('%:p:h'))
+function M.find_project_root(path)
+    if path == nil then
+        path = vim.fs.normalize(vim.fn.expand('%:p:h'))
+    end
     while path ~= "" do
         path = path:gsub("/[^/]+$", "")
         if vim.fn.isdirectory(path.."/.git") == 1 then
@@ -419,9 +421,9 @@ function M.browse_file(opts)
         vim.cmd("tabnew term://" .. (vim.g.SHELL == nil and "zsh" or vim.g.SHELL))
     end
     local function goto_project_root(prompt_bufnr)
-        local root = M.find_project_root()
+        local curr_picker = state.get_current_picker(prompt_bufnr)
+        local root = M.find_project_root(vim.api.nvim_buf_get_name(curr_picker.original_bufnr))
         if root ~= nil and root ~= "" then
-            local curr_picker = state.get_current_picker(prompt_bufnr)
             curr_picker:reload(root)
         end
     end
