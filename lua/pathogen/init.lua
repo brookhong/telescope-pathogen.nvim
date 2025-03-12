@@ -267,9 +267,15 @@ end
 function M.find_project_root(path)
     if path == nil then
         path = vim.fs.normalize(vim.fn.expand('%:p:h'))
+    else
+        path = vim.fs.normalize(path)
     end
     while path ~= "" do
+        local p = path
         path = path:gsub("/[^/]+$", "")
+        if p == path then
+            return ""
+        end
         if vim.fn.isdirectory(path.."/.git") == 1 then
             return path
         end
