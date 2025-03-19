@@ -467,9 +467,6 @@ local function start_builtin(opts)
     opts.prompt_prefix = build_prompt_prefix(opts.cwd)
     opts.attach_mappings = opts.attach_mappings or common_mappings
 
-    if opts.additional_args then
-        reusable_opts.additional_args = opts.additional_args
-    end
     builtin[current_mode](opts)
 end
 
@@ -491,6 +488,11 @@ function M.live_grep(opts)
     opts = opts or {}
     if opts.default_text == nil and M.config.use_last_search_for_live_grep then
         opts.default_text = vim.fn.getreg("/"):gsub("\\<([^\\]+)\\>", "%1")
+    end
+    if opts.additional_args then
+        reusable_opts.additional_args = opts.additional_args
+    else
+        reusable_opts = {}
     end
     start_builtin(opts)
 end
