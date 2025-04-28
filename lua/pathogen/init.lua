@@ -24,8 +24,10 @@ local M = {
         end,
         use_last_search_for_live_grep = true,
         quick_buffer_characters = "asdfgqwertzxcvb",
-        prompt_prefix_length = 100
-    }
+        prompt_prefix_length = 100,
+        prompt_suffix = "» ",
+        relative_prompt_path = false,
+    },
 }
 
 local unescape_chars = function(str)
@@ -40,10 +42,16 @@ finders.new_oneshot_job = function(args, opts)
 end
 
 function build_prompt_prefix(path)
+    if M.config.relative_prompt_path then
+        path = vim.fn.fnamemodify(vim.fs.normalize(path), ":.")
+        if path == vim.fs.normalize(vim.loop.cwd()) then
+            path = ""
+        end
+    end
     if #path > M.config.prompt_prefix_length then
-        return "…"..path:sub(-M.config.prompt_prefix_length).."» "
+        return "…"..path:sub(-M.config.prompt_prefix_length)..M.config.prompt_suffix
     else
-        return path.."» "
+        return path..M.config.prompt_suffix
     end
 end
 
