@@ -25,6 +25,7 @@ local M = {
         use_last_search_for_live_grep = true,
         quick_buffer_characters = "asdfgqwertzxcvb",
         prompt_prefix_length = 100,
+        prompt_suffix = "» ",
         relative_prompt_path = false,
     },
 }
@@ -48,9 +49,9 @@ function build_prompt_prefix(path)
         end
     end
     if #path > M.config.prompt_prefix_length then
-        return "…"..path:sub(-M.config.prompt_prefix_length).."» "
+        return "…"..path:sub(-M.config.prompt_prefix_length)..M.config.prompt_suffix
     else
-        return path.."» "
+        return path..M.config.prompt_suffix
     end
 end
 
