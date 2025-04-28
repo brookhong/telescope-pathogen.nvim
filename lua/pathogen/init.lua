@@ -41,6 +41,9 @@ finders.new_oneshot_job = function(args, opts)
 end
 
 function build_prompt_prefix(path)
+	if M.config.short_prompt_path then
+		path = vim.fn.fnamemodify(path, ":~:.")
+	end
 	if #path > M.config.prompt_prefix_length then
 		return "…" .. path:sub(-M.config.prompt_prefix_length) .. "» "
 	else
@@ -486,9 +489,9 @@ end
 
 local function start_builtin(opts)
 	opts = opts or {}
-	-- opts.cwd = opts.cwd or vim.loop.cwd()
-	local cwd = opts.cwd or vim.loop.cwd()
-	opts.cwd = M.config.short_prompt_path and vim.fn.fnamemodify(cwd, ":~:.") or cwd
+	opts.cwd = opts.cwd or vim.loop.cwd()
+	-- local cwd = opts.cwd or vim.loop.cwd()
+	-- opts.cwd = M.config.short_prompt_path and vim.fn.fnamemodify(cwd, ":~:.") or cwd
 	opts.prompt_prefix = build_prompt_prefix(opts.cwd)
 	opts.attach_mappings = opts.attach_mappings or common_mappings
 
