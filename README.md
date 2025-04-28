@@ -80,7 +80,11 @@ Use [lazy.nvim](https://github.com/folke/lazy.nvim)
                         -- remove below if you want to enable it
                         use_last_search_for_live_grep = false,
                         -- quick_buffer_characters = "asdfgqwertzxcvb",
-                        prompt_prefix_length = 100
+                        prompt_prefix_length = 100,
+                        -- uses a relative path instead of the full path
+                        relative_prompt_path = false,
+                        -- customize the prompt suffix after the path
+                        prompt_suffix = "» "
                     }
                 },
             })
