@@ -44,7 +44,7 @@ end
 function build_prompt_prefix(path)
     if M.config.relative_prompt_path then
         path = vim.fn.fnamemodify(vim.fs.normalize(path), ":.")
-        if path == vim.loop.cwd() then
+        if path == vim.fs.normalize(vim.loop.cwd()) then
             path = ""
         end
     end
