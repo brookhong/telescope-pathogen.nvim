@@ -25,7 +25,7 @@ local M = {
         use_last_search_for_live_grep = true,
         quick_buffer_characters = "asdfgqwertzxcvb",
         prompt_prefix_length = 100,
-        short_prompt_path = false,
+        relative_prompt_path = false,
     },
 }
 
@@ -41,8 +41,11 @@ finders.new_oneshot_job = function(args, opts)
 end
 
 function build_prompt_prefix(path)
-    if M.config.short_prompt_path then
+    if M.config.relative_prompt_path then
         path = vim.fn.fnamemodify(path, ":.")
+        if path == vim.loop.cwd() then
+            path = ""
+        end
     end
     if #path > M.config.prompt_prefix_length then
         return "…"..path:sub(-M.config.prompt_prefix_length).."» "
