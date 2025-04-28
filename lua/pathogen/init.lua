@@ -42,7 +42,7 @@ end
 
 function build_prompt_prefix(path)
     if M.config.short_prompt_path then
-        path = vim.fn.fnamemodify(path, ":.:~")
+        path = vim.fn.fnamemodify(path, ":.")
     end
     if #path > M.config.prompt_prefix_length then
         return "…"..path:sub(-M.config.prompt_prefix_length).."» "
