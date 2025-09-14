@@ -11,8 +11,6 @@ local state = require("telescope.actions.state")
 local telescope_actions = require("telescope.actions")
 local quick_buffer = require("pathogen.quickbuffer")
 
-local flatten = vim.tbl_flatten
-
 local M = {
     config = {
         attach_mappings = function(map, actions)
@@ -297,7 +295,7 @@ end
 function M.browse_file(opts)
     current_mode = "browse_file"
     opts.prompt_title = opts.prompt_title or "Browse file"
-    opts.cwd = opts.cwd or vim.fs.normalize(vim.fn.getcwd())
+    opts.cwd = opts.cwd or vim.fs.normalize(vim.fn.expand('%:p:h'))
     local ls1 = function(path, pattern)
         local t = {}
         local content = vim.fn.globpath(path, pattern, false, true)
@@ -513,7 +511,7 @@ local function grep_in_files(opts)
             return nil
         end
 
-        return flatten { conf.vimgrep_arguments, "--", prompt, opts.search_list }
+        return vim.iter({ conf.vimgrep_arguments, "--", prompt, opts.search_list }):flatten():totable()
     end, make_entry.gen_from_vimgrep(opts), opts.max_results, opts.cwd)
 
     pickers.new(opts, {
