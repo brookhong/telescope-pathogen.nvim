@@ -367,7 +367,7 @@ function M.browse_file(opts)
             curr_picker.cwd = cwd
         else
             telescope_actions.close(prompt_bufnr)
-            vim.cmd("edit " .. curr_picker.cwd .. "/" .. content.value)
+            vim.cmd("edit " .. curr_picker.cwd .. "/" .. content.value:gsub("#", "\\#"))
         end
     end
     local function edit_path(prompt_bufnr)
