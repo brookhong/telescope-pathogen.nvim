@@ -203,6 +203,32 @@ local buildLinesForOldFiles = function(num, lineTotal, max_width)
     return lines, paths
 end
 
+-- Jump to a window already showing `bufnr`, preferring one in the current tab.
+local function focusWindowWithBuf(bufnr)
+    local wins = vim.fn.win_findbuf(bufnr)
+    if #wins == 0 then
+        return false
+    end
+    local cur_tab = api.nvim_get_current_tabpage()
+    for _, win in ipairs(wins) do
+        if api.nvim_win_get_tabpage(win) == cur_tab then
+            api.nvim_set_current_win(win)
+            return true
+        end
+    end
+    api.nvim_set_current_win(wins[1])
+    return true
+end
+
+local function findBufByName(path)
+    for _, buf in ipairs(api.nvim_list_bufs()) do
+        local name = api.nvim_buf_get_name(buf)
+        if name ~= "" and vim.fs.normalize(name) == path then
+            return buf
+        end
+    end
+end
+
 local buf_picker_id = vim.api.nvim_create_buf(false, true)
 vim.bo[buf_picker_id].filetype = "quickbuffer"
 local buf_picker_ns = api.nvim_create_namespace('quick_buffer')
@@ -290,10 +316,13 @@ function M.quickBuffers(config)
     vim.api.nvim_set_current_win(original_win_id)
     if #matches == 1 then
         local data = matches[1].data
-        if type(data) == "number" then
-            vim.cmd(string.format("b %d", data))
-        else
-            vim.cmd(string.format("e %s", data))
+        local target = type(data) == "number" and data or findBufByName(data)
+        if not (target and focusWindowWithBuf(target)) then
+            if type(data) == "number" then
+                vim.cmd(string.format("b %d", data))
+            else
+                vim.cmd(string.format("e %s", data))
+            end
         end
     elseif ch ~= ESC then
         builtin.oldfiles()
