@@ -5,6 +5,21 @@ local M = {}
 
 local BUF_NAME_MARK = "　➜ "
 
+local function first_non_empty_line(bufnr)
+    local lines = api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    for _, line in ipairs(lines) do
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed ~= "" then
+            local max_len = 30
+            if #trimmed > max_len then
+                return trimmed:sub(1, max_len) .. "…"
+            end
+            return trimmed
+        end
+    end
+    return "[empty]"
+end
+
 local genLabels = function(total)
     local characters = M.config.quick_buffer_characters
     local hints = {""}
@@ -95,9 +110,12 @@ local buildLinesForBuffers = function(max_width, max_height)
         height = height + 1
         local files = "|"
         for i, buf in ipairs(bufGroups[dir]) do
-            local name = string.match(vim.fs.normalize(buf.name), ".*/(.*)")
+            local name = string.match(vim.fs.normalize(buf.name), ".*/(.*)") 
             if name == nil then
                 name = buf.name
+            end
+            if name == "" then
+                name = first_non_empty_line(buf.bufnr)
             end
             if buf.bufnr == bnr then
                 files = files.." "..BUF_NAME_MARK..name.."*|"
@@ -236,8 +254,11 @@ local BS = vim.api.nvim_replace_termcodes("<BS>", true, true, true)
 local ESC = vim.api.nvim_replace_termcodes("<Esc>", true, true, true)
 function M.quickBuffers(config)
     -- build buffer names
-    local max_width = vim.api.nvim_win_get_width(0)
-    local max_height = vim.api.nvim_win_get_height(0) - 2
+    -- use the whole editor area (outermost window), not the current window
+    local tabline = (vim.o.showtabline == 2 or (vim.o.showtabline == 1 and #api.nvim_list_tabpages() > 1)) and 1 or 0
+    local statusline = vim.o.laststatus > 0 and 1 or 0
+    local max_width = vim.o.columns
+    local max_height = vim.o.lines - vim.o.cmdheight - tabline - statusline - 2
     local lines, data, markTotal = buildLinesForBuffers(max_width, max_height)
     local width, height = layout(lines, max_width)
     if markTotal > 0 then
@@ -264,7 +285,7 @@ function M.quickBuffers(config)
     -- show buffer picker
     local original_win_id = vim.api.nvim_get_current_win()
     vim.api.nvim_buf_set_lines(buf_picker_id, 0, -1, true, lines)
-    local buf_picker_win_id = vim.api.nvim_open_win(buf_picker_id, false, {relative='win', row=0, col=0, width=width, height=height + 2})
+    local buf_picker_win_id = vim.api.nvim_open_win(buf_picker_id, false, {relative='editor', row=tabline, col=0, width=width, height=height + 2})
     vim.wo[buf_picker_win_id].relativenumber = false
     vim.wo[buf_picker_win_id].number = false
     vim.api.nvim_set_current_win(buf_picker_win_id )
