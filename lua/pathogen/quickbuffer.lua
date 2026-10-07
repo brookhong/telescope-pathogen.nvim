@@ -4,6 +4,7 @@ local api = vim.api
 local M = {}
 
 local BUF_NAME_MARK = "　➜ "
+local COL_SEP = "│"
 
 local function first_non_empty_line(bufnr)
     local lines = api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -114,7 +115,7 @@ local buildLinesForBuffers = function(max_width, max_height, exclude)
     for _, dir in ipairs(dirs) do
         lines[#lines + 1] = build_path(dir, max_width - 1)
         height = height + 1
-        local files = "|"
+        local files = COL_SEP
         for i, buf in ipairs(bufGroups[dir]) do
             local name = string.match(vim.fs.normalize(buf.name), ".*/(.*)") 
             if name == nil then
@@ -124,15 +125,15 @@ local buildLinesForBuffers = function(max_width, max_height, exclude)
                 name = first_non_empty_line(buf.bufnr)
             end
             if buf.bufnr == bnr then
-                files = files.." "..BUF_NAME_MARK..name.."*|"
+                files = files.." "..BUF_NAME_MARK..name.."*"..COL_SEP
             else
-                files = files.." "..BUF_NAME_MARK..name.." |"
+                files = files.." "..BUF_NAME_MARK..name.." "..COL_SEP
             end
             markTotal = markTotal + 1
             bufNrs[#bufNrs + 1] = buf.bufnr
         end
         lines[#lines + 1] = files
-        height = height + math.ceil(#files / max_width)
+        height = height + math.ceil(vim.fn.strdisplaywidth(files) / max_width)
         if height >= max_height then
             break
         end
@@ -142,22 +143,24 @@ local buildLinesForBuffers = function(max_width, max_height, exclude)
 end
 
 local setTitle = function(lines, width, title)
-    local TITLE_MARK = string.rep("=", (width - #title) / 2 )
+    title = " "..title.." "
+    local TITLE_MARK = string.rep("━", (width - #title) / 2 )
     lines[1] = TITLE_MARK..title..TITLE_MARK
 end
 local layout = function(lines, max_width)
     local width = 0
     for _, line in ipairs(lines) do
-        if #line >= max_width then
+        local w = vim.fn.strdisplaywidth(line)
+        if w >= max_width then
             width = max_width
             break
-        elseif #line > width then
-            width = #line
+        elseif w > width then
+            width = w
         end
     end
     local height = 1
     for _, line in ipairs(lines) do
-        height = height + math.ceil(#line / width)
+        height = height + math.ceil(vim.fn.strdisplaywidth(line) / width)
     end
     return width, height
 end
@@ -212,13 +215,13 @@ local buildLinesForOldFiles = function(num, lineTotal, max_width)
     for _, dir in ipairs(dirs) do
         lines[#lines + 1] = build_path(dir, max_width - 1)
         newLine = newLine + 1
-        local files = "|"
+        local files = COL_SEP
         for _, name in ipairs(groups[dir]) do
-            files = files.." "..BUF_NAME_MARK..name.." |"
+            files = files.." "..BUF_NAME_MARK..name.." "..COL_SEP
             paths[#paths + 1] = dir..name
         end
         lines[#lines + 1] = files
-        newLine = newLine + math.ceil(#files / max_width)
+        newLine = newLine + math.ceil(vim.fn.strdisplaywidth(files) / max_width)
         if newLine >= lineTotal - 1 then
             break
         end
@@ -255,7 +258,7 @@ local function layoutBlock(node, nr, cur_win)
     local kind = node[1]
     if kind == "leaf" then
         local win = node[2]
-        local name = nr..":"..bufDisplayName(api.nvim_win_get_buf(win))
+        local name = bufDisplayName(api.nvim_win_get_buf(win))
         if win == cur_win then
             -- the current window needs no mark, it's where we already are
             local text = " "..name.."*"
@@ -324,10 +327,10 @@ local buildLinesForTabs = function()
     local lines = {""}
     local data = {}
     for r = 1, rows do
-        local line = "|"
+        local line = COL_SEP
         for _, cell in ipairs(cells) do
             local l = cell.lines[r]
-            line = line..padRight(l and l.text or "", cell.width).."|"
+            line = line..padRight(l and l.text or "", cell.width)..COL_SEP
             if l then
                 for _, win in ipairs(l.wins) do
                     data[#data+1] = { win = win }
@@ -444,6 +447,7 @@ function M.quickBuffers(config)
     local bnr = vim.fn.bufnr('%')
     local pick = ""
     local ch = ""
+    local newTab = false
     local matches = buildMarks(bnr, buf_picker_ns, data)
     repeat
         -- ch = vim.fn.getcharstr()
@@ -456,10 +460,17 @@ function M.quickBuffers(config)
         end
         if ch == BS then
             pick = ""
+            newTab = false
             matches = buildMarks(bnr, buf_picker_ns, data)
         elseif ch == ESC then
             break
         else
+            -- Shift + mark: open the picked one in a new tab
+            local lower = ch:lower()
+            if lower ~= ch and not M.config.quick_buffer_characters:find(ch, 1, true) then
+                newTab = true
+                ch = lower
+            end
             pick = pick .. ch
         end
         local nextMatches = {}
@@ -492,6 +503,20 @@ function M.quickBuffers(config)
     end
     if #matches == 1 then
         local data = matches[1].data
+        if newTab then
+            local buf = data
+            if type(data) == "table" then
+                buf = api.nvim_win_is_valid(data.win) and api.nvim_win_get_buf(data.win) or nil
+            elseif type(data) == "string" then
+                buf = findBufByName(data)
+            end
+            if buf then
+                vim.cmd(string.format("tab sbuffer %d", buf))
+            elseif type(data) == "string" then
+                vim.cmd("tabedit " .. vim.fn.fnameescape(data))
+            end
+            return
+        end
         if type(data) == "table" and data.win then
             if api.nvim_win_is_valid(data.win) then
                 api.nvim_set_current_win(data.win)
