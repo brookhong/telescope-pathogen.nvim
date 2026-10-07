@@ -76,10 +76,16 @@ local function build_path(path, max_len)
     end
 end
 
-local buildLinesForBuffers = function(max_width, max_height)
+local buildLinesForBuffers = function(max_width, max_height, exclude)
     local bufs = vim.fn.getbufinfo { buflisted = true }
     if #bufs == 1 then
         return {}, {}, 0
+    end
+    if exclude then
+        bufs = vim.tbl_filter(function(b) return not exclude[b.bufnr] end, bufs)
+        if #bufs == 0 then
+            return {}, {}, 0
+        end
     end
     table.sort(bufs, function(a, b)
         return a.lastused > b.lastused
@@ -221,6 +227,119 @@ local buildLinesForOldFiles = function(num, lineTotal, max_width)
     return lines, paths
 end
 
+local function bufDisplayName(bufnr)
+    local name = api.nvim_buf_get_name(bufnr)
+    local tail = string.match(vim.fs.normalize(name), ".*/(.*)")
+    if tail == nil then
+        tail = name
+    end
+    if tail == "" then
+        tail = first_non_empty_line(bufnr)
+    end
+    return tail
+end
+
+local function isFloat(win)
+    return api.nvim_win_get_config(win).relative ~= ""
+end
+
+-- A block is a list of lines, each line { text = string, wins = {winid...} },
+-- plus its display width. Window ids per line are kept in left-to-right order.
+local function padRight(text, width)
+    return text..string.rep(" ", width - vim.fn.strdisplaywidth(text))
+end
+
+-- Render a winlayout() tree into a block that mirrors the on-screen placement:
+-- "row" children (side by side) share lines, "col" children (stacked) are stacked.
+local function layoutBlock(node, nr, cur_win)
+    local kind = node[1]
+    if kind == "leaf" then
+        local win = node[2]
+        local name = nr..":"..bufDisplayName(api.nvim_win_get_buf(win))
+        if win == cur_win then
+            -- the current window needs no mark, it's where we already are
+            local text = " "..name.."*"
+            return { lines = {{ text = text, wins = {} }}, width = vim.fn.strdisplaywidth(text) }
+        end
+        local text = " "..BUF_NAME_MARK..name.." "
+        return { lines = {{ text = text, wins = { win } }}, width = vim.fn.strdisplaywidth(text) }
+    end
+    local children = {}
+    for _, child in ipairs(node[2]) do
+        children[#children+1] = layoutBlock(child, nr, cur_win)
+    end
+    local block = { lines = {}, width = 0 }
+    if kind == "col" then
+        for _, c in ipairs(children) do
+            for _, l in ipairs(c.lines) do
+                block.lines[#block.lines+1] = l
+            end
+            block.width = math.max(block.width, c.width)
+        end
+    else -- "row"
+        local height = 0
+        for _, c in ipairs(children) do
+            height = math.max(height, #c.lines)
+        end
+        for i = 1, height do
+            local text, wins = "", {}
+            for _, c in ipairs(children) do
+                local l = c.lines[i]
+                text = text..padRight(l and l.text or "", c.width)
+                if l then
+                    vim.list_extend(wins, l.wins)
+                end
+            end
+            block.lines[i] = { text = text, wins = wins }
+        end
+        for _, c in ipairs(children) do
+            block.width = block.width + c.width
+        end
+    end
+    return block
+end
+
+-- Tabs: one cell per tab (matching the tabline order); inside each cell the
+-- tab's windows are laid out the way they are placed on screen.
+local buildLinesForTabs = function()
+    local tabs = api.nvim_list_tabpages()
+    local cur_win = api.nvim_get_current_win()
+    local cells = {}
+    local rows, total = 0, 0
+    for _, tab in ipairs(tabs) do
+        local nr = api.nvim_tabpage_get_number(tab)
+        local block = layoutBlock(vim.fn.winlayout(nr), nr, cur_win)
+        cells[#cells+1] = block
+        rows = math.max(rows, #block.lines)
+        for _, l in ipairs(block.lines) do
+            total = total + #l.wins
+        end
+    end
+    -- total excludes the current window, which gets no mark
+    if #tabs < 2 and total < 1 then
+        return {}, {}
+    end
+
+    -- lines are emitted top-down, left-right, which matches the mark search order
+    local lines = {""}
+    local data = {}
+    for r = 1, rows do
+        local line = "|"
+        for _, cell in ipairs(cells) do
+            local l = cell.lines[r]
+            line = line..padRight(l and l.text or "", cell.width).."|"
+            if l then
+                for _, win in ipairs(l.wins) do
+                    data[#data+1] = { win = win }
+                end
+            end
+        end
+        lines[#lines+1] = line
+    end
+    lines[#lines+1] = ""
+    return lines, data
+end
+
 -- Jump to a window already showing `bufnr`, preferring one in the current tab.
 local function focusWindowWithBuf(bufnr)
     local wins = vim.fn.win_findbuf(bufnr)
@@ -259,27 +378,58 @@ function M.quickBuffers(config)
     local statusline = vim.o.laststatus > 0 and 1 or 0
     local max_width = vim.o.columns
     local max_height = vim.o.lines - vim.o.cmdheight - tabline - statusline - 2
-    local lines, data, markTotal = buildLinesForBuffers(max_width, max_height)
-    local width, height = layout(lines, max_width)
-    if markTotal > 0 then
-        setTitle(lines, width, "Buffers|"..#data)
+    local tabLines, tabData = buildLinesForTabs()
+    local tabWidth, tabHeight = 0, 0
+    if #tabData > 0 then
+        tabWidth, tabHeight = layout(tabLines, max_width)
     end
+
+    -- buffers shown in a window listed in Tabs are already reachable, skip them
+    local exclude = {}
+    if #tabData > 0 then
+        exclude[api.nvim_get_current_buf()] = true -- shown (unmarked) in Tabs
+    end
+    for _, w in ipairs(tabData) do
+        exclude[api.nvim_win_get_buf(w.win)] = true
+    end
+    local bufLines, bufData, bufTotal = buildLinesForBuffers(max_width, max_height - tabHeight, exclude)
+    local bufWidth, bufHeight = 0, 0
+    if bufTotal > 0 then
+        bufWidth, bufHeight = layout(bufLines, max_width)
+    end
+
+    local width = math.max(tabWidth, bufWidth)
+    local height = tabHeight + bufHeight
+    local markTotal = #tabData + bufTotal
+
+    local oldFileLines, oldFilePaths = {}, {}
     local max_marks = #(M.config.quick_buffer_characters)
     if markTotal < max_marks and height < max_height then
-        local oldFileLines, oldFilePaths = buildLinesForOldFiles(max_marks - #data, max_height - height, max_width)
+        oldFileLines, oldFilePaths = buildLinesForOldFiles(max_marks - markTotal, max_height - height, max_width)
         local w, h = layout(oldFileLines, max_width)
-        if w > width then
-            width = w
-            setTitle(lines, width, "Buffers|"..markTotal)
-        end
-        setTitle(oldFileLines, width, "Old files|"..#oldFilePaths)
-        for _, f in ipairs(oldFileLines) do
-            lines[#lines+1] = f
-        end
-        for _, n in ipairs(oldFilePaths) do
-            data[#data+1] = n
-        end
+        width = math.max(width, w)
         height = height + h
+    end
+
+    -- assemble sections; data order must match mark order in the picker
+    local lines, data = {}, {}
+    local function append(sectionLines, sectionData, title)
+        setTitle(sectionLines, width, title)
+        for _, l in ipairs(sectionLines) do
+            lines[#lines+1] = l
+        end
+        for _, d in ipairs(sectionData) do
+            data[#data+1] = d
+        end
+    end
+    if #tabData > 0 then
+        append(tabLines, tabData, "Tabs|"..#tabData)
+    end
+    if bufTotal > 0 then
+        append(bufLines, bufData, "Buffers|"..bufTotal)
+    end
+    if #oldFilePaths > 0 then
+        append(oldFileLines, oldFilePaths, "Old files|"..#oldFilePaths)
     end
 
     -- show buffer picker
@@ -333,10 +483,21 @@ function M.quickBuffers(config)
 
     api.nvim_buf_clear_namespace(bnr, buf_picker_ns, 0, -1)
 
-    vim.api.nvim_win_close(buf_picker_win_id , true)
-    vim.api.nvim_set_current_win(original_win_id)
+    if api.nvim_win_is_valid(buf_picker_win_id) then
+        vim.api.nvim_win_close(buf_picker_win_id , true)
+    end
+    -- the original window may be gone (e.g. a float closed on WinLeave)
+    if api.nvim_win_is_valid(original_win_id) then
+        vim.api.nvim_set_current_win(original_win_id)
+    end
     if #matches == 1 then
         local data = matches[1].data
+        if type(data) == "table" and data.win then
+            if api.nvim_win_is_valid(data.win) then
+                api.nvim_set_current_win(data.win)
+            end
+            return
+        end
         local target = type(data) == "number" and data or findBufByName(data)
         if not (target and focusWindowWithBuf(target)) then
             if type(data) == "number" then
