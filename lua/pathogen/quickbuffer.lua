@@ -3,8 +3,58 @@ local api = vim.api
 
 local M = {}
 
-local BUF_NAME_MARK = "　➜ "
+-- Blank cells in front of each entry that can be picked; its hint label is drawn
+-- over it (see buildMarks). Slot columns are recorded while building the lines,
+-- next to the highlight ranges.
+local LABEL_SLOT = "  "
+local ENTRY_PREFIX = " "..LABEL_SLOT.." "
 local COL_SEP = "│"
+
+-- Highlight groups, applied with extmarks (see M.quickBuffers); set them in
+-- your config to change the colors.
+local HL = {
+    title = "quickbufferTitle",     -- group titles
+    name = "quickbufferName",       -- entry names
+    current = "quickbufferCurrent", -- the current buffer/window
+    noname = "quickbufferNoName",   -- buffers without a file name
+}
+-- Default colors, given inline rather than linked to other groups, so they
+-- stay distinct whatever the colorscheme (e.g. OceanicNext gives Special and
+-- Identifier the same color). One palette per 'background'.
+local HL_DEFAULTS = {
+    dark = {
+        [HL.title]   = { fg = "#65737e", ctermfg = 243 },
+        [HL.name]    = { fg = "#6699cc", ctermfg = 68, bold = true },
+        [HL.current] = { fg = "#99c794", ctermfg = 114, bold = true },
+        [HL.noname]  = { fg = "#f99157", ctermfg = 209, italic = true },
+    },
+    light = {
+        [HL.title]   = { fg = "#8a8a8a", ctermfg = 245 },
+        [HL.name]    = { fg = "#005f87", ctermfg = 24, bold = true },
+        [HL.current] = { fg = "#008700", ctermfg = 28, bold = true },
+        [HL.noname]  = { fg = "#af5f00", ctermfg = 130, italic = true },
+    },
+}
+
+-- `default = true`: groups set by the user win. Run every time the picker
+-- opens and on ColorScheme, since a colorscheme change clears highlight groups.
+local function setupHighlights()
+    local palette = HL_DEFAULTS[vim.o.background] or HL_DEFAULTS.dark
+    for group, attrs in pairs(palette) do
+        api.nvim_set_hl(0, group, vim.tbl_extend("force", attrs, { default = true }))
+    end
+end
+
+-- a colorscheme change clears highlight groups, possibly while the picker is open
+api.nvim_create_autocmd("ColorScheme", {
+    group = api.nvim_create_augroup("pathogen_quickbuffer_hl", { clear = true }),
+    callback = setupHighlights,
+})
+
+-- Highlight group for an entry's name.
+local function nameHl(current, noname)
+    return noname and HL.noname or (current and HL.current or HL.name)
+end
 
 local function first_non_empty_line(bufnr)
     local lines = api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -40,16 +90,11 @@ local genLabels = function(total)
     return ret
 end
 
-local buildMarks = function(bnr, ns_id, data)
+-- Draw hint labels over the label slots. `positions[i]` = {line, col} (0-based)
+-- is the slot of `data[i]`.
+local buildMarks = function(bnr, ns_id, data, positions)
     api.nvim_buf_clear_namespace(bnr, ns_id, 0, -1)
-    local found = {}
-    local view = vim.fn.winsaveview()
-    vim.cmd("normal! 0gg")
-    local pos = vim.fn.searchpos(BUF_NAME_MARK, "cW")
-    while pos and pos[1] ~= 0 do
-        found[#found+1] = pos
-        pos = vim.fn.searchpos(BUF_NAME_MARK, "W")
-    end
+    local found = positions
     local labels = genLabels(#found)
     local marks = {}
     local opts = {
@@ -59,40 +104,49 @@ local buildMarks = function(bnr, ns_id, data)
     for i, pos in ipairs(found) do
         opts.virt_text = {{labels[i], "Search"}}
         marks[#marks + 1] = {
-            id = api.nvim_buf_set_extmark(bnr, ns_id, pos[1] - 1, pos[2] - 1, opts),
+            id = api.nvim_buf_set_extmark(bnr, ns_id, pos[1], pos[2], opts),
             data = data[i],
             label = labels[i]
         }
     end
     vim.cmd("redraw")
-    vim.fn.winrestview(view)
     return marks
 end
 
--- Pack `entries` ({ name, current }) into lines no wider than max_width, using
--- at most max_height lines. Returns the lines (with a leading title slot and a
--- trailing blank line) and how many entries fit; entries beyond that get no mark.
+-- Pack `entries` ({ name, current, noname }) into lines no wider than max_width,
+-- using at most max_height lines. Returns the lines (with a leading title slot
+-- and a trailing blank line), how many entries fit (entries beyond that get no
+-- mark), and per line, in 0-based byte columns of lines[lnum]:
+--   hls[lnum]   = {{s, e, group}, ...}  highlight ranges of the names
+--   slots[lnum] = {col, ...}            label slots, left to right
 local function packEntries(entries, max_width, max_height)
     local lines = {""}
+    local hls, slots = {}, {}
     local count = 0
-    local files = COL_SEP
+    local files, lineHls, lineSlots = COL_SEP, {}, {}
+    local prefix = ENTRY_PREFIX
     for _, e in ipairs(entries) do
-        local entry = " "..BUF_NAME_MARK..e.name..(e.current and "*" or " ")..COL_SEP
+        local entry = prefix..e.name.." "..COL_SEP
         if files ~= COL_SEP and vim.fn.strdisplaywidth(files..entry) > max_width then
             lines[#lines + 1] = files
-            files = COL_SEP
+            hls[#lines], slots[#lines] = lineHls, lineSlots
+            files, lineHls, lineSlots = COL_SEP, {}, {}
             if #lines - 1 >= max_height then
                 break
             end
         end
+        local s = #files + #prefix
+        lineSlots[#lineSlots + 1] = #files + 1
+        lineHls[#lineHls + 1] = { s, s + #e.name, nameHl(e.current, e.noname) }
         files = files..entry
         count = count + 1
     end
     if files ~= COL_SEP then
         lines[#lines + 1] = files
+        hls[#lines], slots[#lines] = lineHls, lineSlots
     end
     lines[#lines + 1] = ""
-    return lines, count
+    return lines, count, hls, slots
 end
 
 local buildLinesForBuffers = function(max_width, max_height, exclude, names)
@@ -115,14 +169,14 @@ local buildLinesForBuffers = function(max_width, max_height, exclude, names)
     local bnr = vim.fn.bufnr('%')
     local entries = {}
     for _, buf in ipairs(bufs) do
-        entries[#entries + 1] = { name = names[buf.bufnr], current = buf.bufnr == bnr }
+        entries[#entries + 1] = { name = names[buf.bufnr], current = buf.bufnr == bnr, noname = buf.name == "" }
     end
-    local lines, count = packEntries(entries, max_width, max_height)
+    local lines, count, hls, slots = packEntries(entries, max_width, max_height)
     local bufNrs = {}
     for i = 1, count do
         bufNrs[i] = bufs[i].bufnr
     end
-    return lines, bufNrs, count
+    return lines, bufNrs, count, hls, slots
 end
 
 local setTitle = function(lines, width, title)
@@ -194,8 +248,8 @@ local buildLinesForOldFiles = function(paths, lineTotal, max_width, names)
     for _, path in ipairs(paths) do
         entries[#entries + 1] = { name = names[path] }
     end
-    local lines, count = packEntries(entries, max_width, lineTotal - 2)
-    return lines, vim.list_slice(paths, 1, count)
+    local lines, count, hls, slots = packEntries(entries, max_width, lineTotal - 2)
+    return lines, vim.list_slice(paths, 1, count), hls, slots
 end
 
 local function bufDisplayName(bufnr)
@@ -205,7 +259,7 @@ local function bufDisplayName(bufnr)
         tail = name
     end
     if tail == "" then
-        tail = "▢ "..first_non_empty_line(bufnr)
+        tail = first_non_empty_line(bufnr)
     end
     return tail
 end
@@ -276,8 +330,10 @@ local function isFloat(win)
     return api.nvim_win_get_config(win).relative ~= ""
 end
 
--- A block is a list of lines, each line { text = string, wins = {winid...} },
--- plus its display width. Window ids per line are kept in left-to-right order.
+-- A block is a list of lines, each line { text = string, wins = {winid...},
+-- hls = {{s, e, group}...}, slots = {col...} }, plus its display width. Window
+-- ids and slots per line are kept in left-to-right order; hls are the 0-based
+-- byte ranges of names in text, slots the 0-based byte columns of label slots.
 local function padRight(text, width)
     return text..string.rep(" ", width - vim.fn.strdisplaywidth(text))
 end
@@ -288,14 +344,19 @@ local function layoutBlock(node, nr, cur_win, names)
     local kind = node[1]
     if kind == "leaf" then
         local win = node[2]
-        local name = names[api.nvim_win_get_buf(win)]
-        if win == cur_win then
-            -- the current window needs no mark, it's where we already are
-            local text = " "..name.."*"
-            return { lines = {{ text = text, wins = {} }}, width = vim.fn.strdisplaywidth(text) }
-        end
-        local text = " "..BUF_NAME_MARK..name.." "
-        return { lines = {{ text = text, wins = { win } }}, width = vim.fn.strdisplaywidth(text) }
+        local bufnr = api.nvim_win_get_buf(win)
+        local name = names[bufnr]
+        -- the current window needs no mark, it's where we already are
+        local current = win == cur_win
+        local prefix = current and " " or ENTRY_PREFIX
+        -- trailing space, like packEntries, so names don't touch the column line
+        local text = prefix..name.." "
+        local hls = {{ #prefix, #prefix + #name, nameHl(current, api.nvim_buf_get_name(bufnr) == "") }}
+        local slots = current and {} or { 1 }
+        return {
+            lines = {{ text = text, wins = current and {} or { win }, hls = hls, slots = slots }},
+            width = vim.fn.strdisplaywidth(text),
+        }
     end
     local children = {}
     for _, child in ipairs(node[2]) do
@@ -315,15 +376,21 @@ local function layoutBlock(node, nr, cur_win, names)
             height = math.max(height, #c.lines)
         end
         for i = 1, height do
-            local text, wins = "", {}
+            local text, wins, hls, slots = "", {}, {}, {}
             for _, c in ipairs(children) do
                 local l = c.lines[i]
-                text = text..padRight(l and l.text or "", c.width)
                 if l then
                     vim.list_extend(wins, l.wins)
+                    for _, h in ipairs(l.hls) do
+                        hls[#hls+1] = { #text + h[1], #text + h[2], h[3] }
+                    end
+                    for _, col in ipairs(l.slots) do
+                        slots[#slots+1] = #text + col
+                    end
                 end
+                text = text..padRight(l and l.text or "", c.width)
             end
-            block.lines[i] = { text = text, wins = wins }
+            block.lines[i] = { text = text, wins = wins, hls = hls, slots = slots }
         end
         for _, c in ipairs(children) do
             block.width = block.width + c.width
@@ -350,27 +417,35 @@ local buildLinesForTabs = function(names)
     end
     -- total excludes the current window, which gets no mark
     if #tabs < 2 and total < 1 then
-        return {}, {}
+        return {}, {}, {}, {}
     end
 
-    -- lines are emitted top-down, left-right, which matches the mark search order
+    -- lines are emitted top-down, left-right, which matches the label slot order
     local lines = {""}
     local data = {}
+    local hls, slots = {}, {}
     for r = 1, rows do
-        local line = COL_SEP
+        local line, lineHls, lineSlots = COL_SEP, {}, {}
         for _, cell in ipairs(cells) do
             local l = cell.lines[r]
-            line = line..padRight(l and l.text or "", cell.width)..COL_SEP
             if l then
                 for _, win in ipairs(l.wins) do
                     data[#data+1] = { win = win }
                 end
+                for _, h in ipairs(l.hls) do
+                    lineHls[#lineHls+1] = { #line + h[1], #line + h[2], h[3] }
+                end
+                for _, col in ipairs(l.slots) do
+                    lineSlots[#lineSlots+1] = #line + col
+                end
             end
+            line = line..padRight(l and l.text or "", cell.width)..COL_SEP
         end
         lines[#lines+1] = line
+        hls[#lines], slots[#lines] = lineHls, lineSlots
     end
     lines[#lines+1] = ""
-    return lines, data
+    return lines, data, hls, slots
 end
 
 -- Jump to a window already showing `bufnr`, preferring one in the current tab.
@@ -404,6 +479,7 @@ local buf_picker_id = vim.api.nvim_create_buf(false, true)
 pcall(vim.api.nvim_buf_set_name, buf_picker_id, "[QuickBuffer]")
 vim.bo[buf_picker_id].filetype = "quickbuffer"
 local buf_picker_ns = api.nvim_create_namespace('quick_buffer')
+local buf_picker_hl_ns = api.nvim_create_namespace('quick_buffer_hl')
 local BS = vim.api.nvim_replace_termcodes("<BS>", true, true, true)
 local ESC = vim.api.nvim_replace_termcodes("<Esc>", true, true, true)
 function M.quickBuffers(config)
@@ -422,10 +498,10 @@ function M.quickBuffers(config)
         nameBufs[#nameBufs+1] = b.bufnr
     end
 
-    local tabLines, tabData, tabWidth, tabHeight
-    local bufLines, bufData, bufTotal, bufWidth, bufHeight
+    local tabLines, tabData, tabHls, tabSlots, tabWidth, tabHeight
+    local bufLines, bufData, bufTotal, bufHls, bufSlots, bufWidth, bufHeight
     local function buildTabsAndBuffers(names)
-        tabLines, tabData = buildLinesForTabs(names)
+        tabLines, tabData, tabHls, tabSlots = buildLinesForTabs(names)
         tabWidth, tabHeight = 0, 0
         if #tabData > 0 then
             tabWidth, tabHeight = layout(tabLines, max_width)
@@ -439,7 +515,7 @@ function M.quickBuffers(config)
         for _, w in ipairs(tabData) do
             exclude[api.nvim_win_get_buf(w.win)] = true
         end
-        bufLines, bufData, bufTotal = buildLinesForBuffers(max_width, max_height - tabHeight, exclude, names)
+        bufLines, bufData, bufTotal, bufHls, bufSlots = buildLinesForBuffers(max_width, max_height - tabHeight, exclude, names)
         bufWidth, bufHeight = 0, 0
         if bufTotal > 0 then
             bufWidth, bufHeight = layout(bufLines, max_width)
@@ -477,9 +553,9 @@ function M.quickBuffers(config)
     local height = tabHeight + bufHeight
     markTotal = #tabData + bufTotal
 
-    local oldFileLines, oldFilePaths = {}, {}
+    local oldFileLines, oldFilePaths, oldFileHls, oldFileSlots = {}, {}, {}, {}
     if #oldPaths > 0 and height < max_height then
-        oldFileLines, oldFilePaths = buildLinesForOldFiles(oldPaths, max_height - height, max_width, names)
+        oldFileLines, oldFilePaths, oldFileHls, oldFileSlots = buildLinesForOldFiles(oldPaths, max_height - height, max_width, names)
         if #oldFilePaths > 0 then
             local w, h = layout(oldFileLines, max_width)
             width = math.max(width, w)
@@ -488,29 +564,49 @@ function M.quickBuffers(config)
     end
 
     -- assemble sections; data order must match mark order in the picker
-    local lines, data = {}, {}
-    local function append(sectionLines, sectionData, title)
+    local lines, data, hls, positions = {}, {}, {}, {}
+    local function append(sectionLines, sectionData, title, sectionHls, sectionSlots)
         setTitle(sectionLines, width, title)
-        for _, l in ipairs(sectionLines) do
+        for i, l in ipairs(sectionLines) do
             lines[#lines+1] = l
+            if i == 1 then
+                hls[#hls+1] = { #lines - 1, 0, #l, HL.title }
+            end
+            for _, h in ipairs(sectionHls[i] or {}) do
+                hls[#hls+1] = { #lines - 1, h[1], h[2], h[3] }
+            end
+            -- data is ordered top-down, left-to-right, so are the slots
+            for _, col in ipairs(sectionSlots[i] or {}) do
+                positions[#positions+1] = { #lines - 1, col }
+            end
         end
         for _, d in ipairs(sectionData) do
             data[#data+1] = d
         end
     end
     if #tabData > 0 then
-        append(tabLines, tabData, "Tabs|"..#tabData)
+        append(tabLines, tabData, "Tabs|"..#tabData, tabHls, tabSlots)
     end
     if bufTotal > 0 then
-        append(bufLines, bufData, "Buffers|"..bufTotal)
+        append(bufLines, bufData, "Buffers|"..bufTotal, bufHls, bufSlots)
     end
     if #oldFilePaths > 0 then
-        append(oldFileLines, oldFilePaths, "Old files|"..#oldFilePaths)
+        append(oldFileLines, oldFilePaths, "Old files|"..#oldFilePaths, oldFileHls, oldFileSlots)
     end
+
+    -- check before opening the picker window, so a failure doesn't leave it open
+    assert(#positions == #data, "quickbuffer: label slots don't match entries")
 
     -- show buffer picker
     local original_win_id = vim.api.nvim_get_current_win()
     vim.api.nvim_buf_set_lines(buf_picker_id, 0, -1, true, lines)
+    -- highlights: positions are known while building the lines, so they are
+    -- applied as extmarks (no syntax file)
+    setupHighlights()
+    api.nvim_buf_clear_namespace(buf_picker_id, buf_picker_hl_ns, 0, -1)
+    for _, h in ipairs(hls) do
+        api.nvim_buf_set_extmark(buf_picker_id, buf_picker_hl_ns, h[1], h[2], { end_col = h[3], hl_group = h[4] })
+    end
     local buf_picker_win_id = vim.api.nvim_open_win(buf_picker_id, false, {relative='editor', row=tabline, col=0, width=width, height=height + 2})
     vim.wo[buf_picker_win_id].relativenumber = false
     vim.wo[buf_picker_win_id].number = false
@@ -521,7 +617,7 @@ function M.quickBuffers(config)
     local pick = ""
     local ch = ""
     local newTab = false
-    local matches = buildMarks(bnr, buf_picker_ns, data)
+    local matches = buildMarks(bnr, buf_picker_ns, data, positions)
     repeat
         -- ch = vim.fn.getcharstr()
         local ok, ret = pcall(vim.fn.getcharstr)
@@ -534,7 +630,7 @@ function M.quickBuffers(config)
         if ch == BS then
             pick = ""
             newTab = false
-            matches = buildMarks(bnr, buf_picker_ns, data)
+            matches = buildMarks(bnr, buf_picker_ns, data, positions)
         elseif ch == ESC then
             break
         else

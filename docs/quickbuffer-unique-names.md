@@ -14,14 +14,14 @@ from anywhere):
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ Tabs|2 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-│ ➜ x/src/init.lua │ z/init.lua* ➜ y/src/init.lua │
+│ a  x/src/init.lua │ z/init.lua  s  y/src/init.lua │
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━ Buffers|2 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-│ ➜ w/src/init.lua │ ➜ main.lua │
+│ d  w/src/init.lua │ f  main.lua │
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━ Old files|4 ━━━━━━━━━━━━━━━━━━━━━━━━━
-│ ➜ q/src/init.lua │ ➜ notes/config.md │ ➜ dot/config.md │
-│ ➜ qbt/solo.txt │
+│ g  q/src/init.lua │ q  notes/config.md │ w  dot/config.md │
+│ e  qbt/solo.txt │
 ```
 
 Because labels are unique, no group needs directory headings.
@@ -194,20 +194,24 @@ parent directory:
 local name = names[api.nvim_win_get_buf(win)]
 ```
 
-Side-by-side windows share a line, stacked windows are stacked, cells are
-padded to the same display width (`strdisplaywidth`), marks are assigned
-top-down and left-to-right, and the current window is shown without a mark
-(with a trailing `*`).
+Each window is drawn as `ENTRY_PREFIX`, the name and a space; the current
+window gets no label slot, just a leading space, and is told apart by its
+color (`quickbufferCurrent`). Side-by-side windows share a line, stacked
+windows are stacked, cells are padded to the same display width
+(`strdisplaywidth`), and marks are assigned top-down and left-to-right.
 
 ### Flat lists — `packEntries(entries, max_width, max_height)`
 
-Shared by Buffers and Old files. Each entry is `{ name, current }` and is
-drawn as ` ➜ name ` (or ` ➜ name*` for the current buffer) followed by `COL_SEP` (`│`).
+Shared by Buffers and Old files. Each entry is `{ name, current, noname }`
+and is drawn as `ENTRY_PREFIX` (a space, the two-cell `LABEL_SLOT`, a space),
+the name, a space and `COL_SEP` (`│`). The current buffer is told apart by its
+color (`quickbufferCurrent`), not by a marker.
 An entry starts a new line when adding it would make the current line wider
 than `max_width` (measured with `strdisplaywidth`). Packing stops once
 `max_height` lines are used. Returns the lines (with a title slot first and a
-blank line last) and **how many entries fit**. Entries that don't fit get no
-mark, so the marks always match the entries shown.
+blank line last), **how many entries fit**, and per line the highlight ranges
+(`hls`) and label slots (`slots`). Entries that don't fit get no mark, so the
+marks always match the entries shown.
 
 ### Buffers — `buildLinesForBuffers(max_width, max_height, exclude, names)`
 
@@ -222,7 +226,8 @@ only the paths that fit. A picked old file is still opened by its full path.
 ## Scope and limitations
 
 - Unnamed buffers are labelled by their content and never get a prefix. If
-  such a label happens to equal a file name, the two are not told apart.
+  such a label happens to equal a file name, the two are not told apart by
+  text; they are told apart by color instead (`quickbufferNoName`).
 - Pass 2 takes into account all old files from `collectOldFiles`. If Old
   files then runs out of height, a file that isn't shown may still have made
   another label longer. This is rare and harmless: the label is still unique,
@@ -230,3 +235,61 @@ only the paths that fit. A picked old file is still opened by its full path.
 - Cost: for a group of `n` same-named entries whose paths have at most `d`
   parts, the work is `O(n² · d)`. With at most `#quick_buffer_characters`
   marks, that's negligible.
+
+## Highlighting
+
+There is no syntax file: all highlights are extmarks in the `quick_buffer_hl`
+namespace, since the positions are known while building the lines.
+
+- `packEntries` and `layoutBlock` record `{s, e, group}` for every name in
+  `hls`, in 0-based byte columns. As Tabs cells are padded and joined (`row`
+  children, then cells into a line), each range is shifted by the byte length
+  of the text before it.
+- `append` in `M.quickBuffers` adds the title line of each group, and moves
+  every range to its line number in the picker buffer.
+- After `nvim_buf_set_lines`, the ranges are applied with
+  `nvim_buf_set_extmark(..., { end_col = e, hl_group = group })`.
+
+The group is picked by `nameHl(current, noname)`: `quickbufferNoName` for
+buffers without a file name (even when current), else `quickbufferCurrent`
+for the current buffer or window, else `quickbufferName`. Titles use
+`quickbufferTitle`.
+
+`setupHighlights()` runs every time the picker opens and on every
+`ColorScheme` event, since a colorscheme change clears highlight groups (some
+configs switch colorschemes from `BufEnter`, which can happen while the picker
+opens).
+
+The groups get **their own colors** from `HL_DEFAULTS`, one palette per
+`'background'` (`dark` / `light`), with `fg`, `ctermfg` and bold/italic.
+They are not links to other groups: with links, the colors depend on the
+colorscheme, and some (e.g. OceanicNext) give `Special` and `Identifier` the
+same color, which made unnamed buffers look current. They are set with
+`default = true`, so groups set by the user win.
+
+### Hint labels
+
+Hint labels are found the same way. Every entry that can be picked starts
+with `LABEL_SLOT` (two blank cells). Next to `hls`, each line carries
+`slots = {col, ...}`, the 0-based byte columns of its label slots, left to
+right:
+
+- `packEntries` records `#files + 1` (just after the leading space) for every
+  entry; `layoutBlock` records column `1` for every leaf except the current
+  window, which gets no label.
+- Wherever `hls` ranges are shifted (joining `row` children, joining cells
+  into a line), `slots` are shifted by the same byte offset.
+- `append` copies each line's slots into `positions` as `{line, col}`.
+
+Both `data` and `positions` run top-down, left-to-right, so `positions[i]` is
+the slot of `data[i]`. `M.quickBuffers` asserts that the counts match
+**before** opening the picker window (so a failure can't leave it open), and
+`buildMarks(bnr, ns, data, positions)` draws `labels[i]` over `positions[i]`
+as an overlay extmark.
+
+Before this, the entries started with a visible marker (`　➜ `) and
+`buildMarks` searched the picker text for it. That needed a marker that no
+name could contain.
+
+The hint labels use a separate namespace (`quick_buffer`), which is cleared on
+every key press, so they don't remove the highlights.

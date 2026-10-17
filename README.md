@@ -56,6 +56,21 @@ The idea comes from [Switch tabs](https://github.com/brookhong/Surfingkeys?tab=r
 
 ![quick_buffer](https://github.com/brookhong/telescope-pathogen.nvim/assets/288207/51d060af-34be-4fba-a0f1-294404cdcff4)
 
+The colors come from these highlight groups. They have their own default colors (not links to other groups, so they stay distinct in any colorscheme), with a palette for each `'background'`:
+
+| group                | dark                | light               | used for                      |
+|----------------------|---------------------|---------------------|-------------------------------|
+| `quickbufferTitle`   | `#65737e`           | `#8a8a8a`           | group titles                  |
+| `quickbufferName`    | `#6699cc` bold      | `#005f87` bold      | buffer, window and file names |
+| `quickbufferCurrent` | `#99c794` bold      | `#008700` bold      | the current buffer/window     |
+| `quickbufferNoName`  | `#f99157` italic    | `#af5f00` italic    | buffers without a file name   |
+
+Groups you set yourself are kept. A colorscheme change clears highlight groups, so set yours from a `ColorScheme` autocmd or after `:colorscheme`:
+
+```lua
+vim.api.nvim_set_hl(0, "quickbufferNoName", { fg = "#d19a66", italic = true })
+```
+
 
 ## 📦 Installation
 
