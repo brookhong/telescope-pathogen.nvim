@@ -69,15 +69,33 @@ local buildMarks = function(bnr, ns_id, data)
     return marks
 end
 
-local function build_path(path, max_len)
-    if #path > max_len then
-        return "…"..path:sub(-max_len+1).."»"
-    else
-        return path.."»"
+-- Pack `entries` ({ name, current }) into lines no wider than max_width, using
+-- at most max_height lines. Returns the lines (with a leading title slot and a
+-- trailing blank line) and how many entries fit; entries beyond that get no mark.
+local function packEntries(entries, max_width, max_height)
+    local lines = {""}
+    local count = 0
+    local files = COL_SEP
+    for _, e in ipairs(entries) do
+        local entry = " "..BUF_NAME_MARK..e.name..(e.current and "*" or " ")..COL_SEP
+        if files ~= COL_SEP and vim.fn.strdisplaywidth(files..entry) > max_width then
+            lines[#lines + 1] = files
+            files = COL_SEP
+            if #lines - 1 >= max_height then
+                break
+            end
+        end
+        files = files..entry
+        count = count + 1
     end
+    if files ~= COL_SEP then
+        lines[#lines + 1] = files
+    end
+    lines[#lines + 1] = ""
+    return lines, count
 end
 
-local buildLinesForBuffers = function(max_width, max_height, exclude)
+local buildLinesForBuffers = function(max_width, max_height, exclude, names)
     local bufs = vim.fn.getbufinfo { buflisted = true }
     if #bufs == 1 then
         return {}, {}, 0
@@ -92,60 +110,28 @@ local buildLinesForBuffers = function(max_width, max_height, exclude)
         return a.lastused > b.lastused
     end)
 
-    local bufGroups = {}
-    local dirs = {}
-    for i, buf in ipairs(bufs) do
-        local dir = string.match(vim.fs.normalize(buf.name), ".*/")
-        if dir == nil then
-            dir = "[No Name]"
-        end
-        if bufGroups[dir] == nil then
-            bufGroups[dir] = {}
-            dirs[#dirs + 1] = dir
-        end
-        local bg = bufGroups[dir]
-        bg[#bg + 1] = buf
-    end
-
+    -- flat list in last-used order; names are unique (see uniqueDisplayNames),
+    -- so no directory headings.
     local bnr = vim.fn.bufnr('%')
-    local lines = {""}
-    local bufNrs = {}
-    local markTotal = 0
-    local height = 0
-    for _, dir in ipairs(dirs) do
-        lines[#lines + 1] = build_path(dir, max_width - 1)
-        height = height + 1
-        local files = COL_SEP
-        for i, buf in ipairs(bufGroups[dir]) do
-            local name = string.match(vim.fs.normalize(buf.name), ".*/(.*)") 
-            if name == nil then
-                name = buf.name
-            end
-            if name == "" then
-                name = first_non_empty_line(buf.bufnr)
-            end
-            if buf.bufnr == bnr then
-                files = files.." "..BUF_NAME_MARK..name.."*"..COL_SEP
-            else
-                files = files.." "..BUF_NAME_MARK..name.." "..COL_SEP
-            end
-            markTotal = markTotal + 1
-            bufNrs[#bufNrs + 1] = buf.bufnr
-        end
-        lines[#lines + 1] = files
-        height = height + math.ceil(vim.fn.strdisplaywidth(files) / max_width)
-        if height >= max_height then
-            break
-        end
+    local entries = {}
+    for _, buf in ipairs(bufs) do
+        entries[#entries + 1] = { name = names[buf.bufnr], current = buf.bufnr == bnr }
     end
-    lines[#lines + 1] = ""
-    return lines, bufNrs, markTotal
+    local lines, count = packEntries(entries, max_width, max_height)
+    local bufNrs = {}
+    for i = 1, count do
+        bufNrs[i] = bufs[i].bufnr
+    end
+    return lines, bufNrs, count
 end
 
 local setTitle = function(lines, width, title)
     title = " "..title.." "
-    local TITLE_MARK = string.rep("━", (width - #title) / 2 )
-    lines[1] = TITLE_MARK..title..TITLE_MARK
+    -- split the padding so every title is exactly `width` wide, even when
+    -- width - #title is odd (the right side gets the extra one)
+    local pad = math.max(0, width - vim.fn.strdisplaywidth(title))
+    local left = math.floor(pad / 2)
+    lines[1] = string.rep("━", left)..title..string.rep("━", pad - left)
 end
 local layout = function(lines, max_width)
     local width = 0
@@ -175,14 +161,17 @@ local function has_value(tab, val)
     return false
 end
 
-local buildLinesForOldFiles = function(num, lineTotal, max_width)
-    local bufs = vim.fn.getbufinfo { buflisted = true }
+-- Recently opened files that are readable and not loaded as listed buffers.
+local collectOldFiles = function(num)
     local bufNames = {}
-    for i, buf in ipairs(bufs) do
+    for _, buf in ipairs(vim.fn.getbufinfo { buflisted = true }) do
         bufNames[#bufNames + 1] = buf.name
     end
 
     local oldfiles = {}
+    if num <= 0 then
+        return oldfiles
+    end
     for _, f in ipairs(vim.v.oldfiles) do
         if string.match(f, "term://.*") == nil and
             string.match(f, "surfingkeys://.*") == nil and
@@ -196,38 +185,17 @@ local buildLinesForOldFiles = function(num, lineTotal, max_width)
             end
         end
     end
+    return oldfiles
+end
 
-    local groups = {}
-    local dirs = {}
-    for i, file in ipairs(oldfiles) do
-        local dir = string.match(file, ".*/")
-        if groups[dir] == nil then
-            groups[dir] = {}
-            dirs[#dirs + 1] = dir
-        end
-        local bg = groups[dir]
-        bg[#bg + 1] = string.match(file, ".*/(.*)")
+-- Flat list of old files labelled by names[path] (see uniqueDisplayNames).
+local buildLinesForOldFiles = function(paths, lineTotal, max_width, names)
+    local entries = {}
+    for _, path in ipairs(paths) do
+        entries[#entries + 1] = { name = names[path] }
     end
-
-    local lines = {""}
-    local paths = {}
-    local newLine = 1
-    for _, dir in ipairs(dirs) do
-        lines[#lines + 1] = build_path(dir, max_width - 1)
-        newLine = newLine + 1
-        local files = COL_SEP
-        for _, name in ipairs(groups[dir]) do
-            files = files.." "..BUF_NAME_MARK..name.." "..COL_SEP
-            paths[#paths + 1] = dir..name
-        end
-        lines[#lines + 1] = files
-        newLine = newLine + math.ceil(vim.fn.strdisplaywidth(files) / max_width)
-        if newLine >= lineTotal - 1 then
-            break
-        end
-    end
-    lines[#lines + 1] = ""
-    return lines, paths
+    local lines, count = packEntries(entries, max_width, lineTotal - 2)
+    return lines, vim.list_slice(paths, 1, count)
 end
 
 local function bufDisplayName(bufnr)
@@ -237,9 +205,71 @@ local function bufDisplayName(bufnr)
         tail = name
     end
     if tail == "" then
-        tail = first_non_empty_line(bufnr)
+        tail = "▢ "..first_non_empty_line(bufnr)
     end
     return tail
+end
+
+-- Display names, keyed by bufnr for `bufnrs` and by path for `paths` (old files).
+-- A name is the file name, prefixed with the fewest parent directories needed to
+-- tell it apart from other entries with the same file name. Old files always get
+-- at least their parent directory, as a hint of where they live.
+local function uniqueDisplayNames(bufnrs, paths)
+    local names, groups = {}, {}
+    local function add(key, path, minDepth)
+        local parts = vim.split(vim.fs.normalize(path), "/", { plain = true })
+        local tail = parts[#parts]
+        local g = groups[tail] or {}
+        groups[tail] = g
+        g[#g+1] = { key = key, parts = parts, minDepth = minDepth }
+    end
+    for _, b in ipairs(bufnrs) do
+        if names[b] == nil then
+            names[b] = bufDisplayName(b)
+            local path = api.nvim_buf_get_name(b)
+            if path ~= "" then
+                add(b, path, 1)
+            end
+        end
+    end
+    for _, path in ipairs(paths or {}) do
+        if names[path] == nil then
+            names[path] = path
+            add(path, path, 2)
+        end
+    end
+    local function suffix(parts, k)
+        return table.concat(parts, "/", math.max(1, #parts - k + 1))
+    end
+    for _, g in pairs(groups) do
+        for _, e in ipairs(g) do
+            local k = math.min(e.minDepth, #e.parts)
+            while k < #e.parts do
+                local s, clash = suffix(e.parts, k), false
+                for _, o in ipairs(g) do
+                    if o ~= e and suffix(o.parts, k) == s then
+                        clash = true
+                        break
+                    end
+                end
+                if not clash then break end
+                k = k + 1
+            end
+            names[e.key] = suffix(e.parts, k)
+        end
+    end
+    return names
+end
+
+local function collectLeafBufs(node, out)
+    if node[1] == "leaf" then
+        out[#out+1] = api.nvim_win_get_buf(node[2])
+    else
+        for _, child in ipairs(node[2]) do
+            collectLeafBufs(child, out)
+        end
+    end
+    return out
 end
 
 local function isFloat(win)
@@ -254,11 +284,11 @@ end
 
 -- Render a winlayout() tree into a block that mirrors the on-screen placement:
 -- "row" children (side by side) share lines, "col" children (stacked) are stacked.
-local function layoutBlock(node, nr, cur_win)
+local function layoutBlock(node, nr, cur_win, names)
     local kind = node[1]
     if kind == "leaf" then
         local win = node[2]
-        local name = bufDisplayName(api.nvim_win_get_buf(win))
+        local name = names[api.nvim_win_get_buf(win)]
         if win == cur_win then
             -- the current window needs no mark, it's where we already are
             local text = " "..name.."*"
@@ -269,7 +299,7 @@ local function layoutBlock(node, nr, cur_win)
     end
     local children = {}
     for _, child in ipairs(node[2]) do
-        children[#children+1] = layoutBlock(child, nr, cur_win)
+        children[#children+1] = layoutBlock(child, nr, cur_win, names)
     end
     local block = { lines = {}, width = 0 }
     if kind == "col" then
@@ -304,14 +334,14 @@ end
 
 -- Tabs: one cell per tab (matching the tabline order); inside each cell the
 -- tab's windows are laid out the way they are placed on screen.
-local buildLinesForTabs = function()
+local buildLinesForTabs = function(names)
     local tabs = api.nvim_list_tabpages()
     local cur_win = api.nvim_get_current_win()
     local cells = {}
     local rows, total = 0, 0
     for _, tab in ipairs(tabs) do
         local nr = api.nvim_tabpage_get_number(tab)
-        local block = layoutBlock(vim.fn.winlayout(nr), nr, cur_win)
+        local block = layoutBlock(vim.fn.winlayout(nr), nr, cur_win, names)
         cells[#cells+1] = block
         rows = math.max(rows, #block.lines)
         for _, l in ipairs(block.lines) do
@@ -370,6 +400,8 @@ local function findBufByName(path)
 end
 
 local buf_picker_id = vim.api.nvim_create_buf(false, true)
+-- pcall: the name may already be taken if this module is reloaded
+pcall(vim.api.nvim_buf_set_name, buf_picker_id, "[QuickBuffer]")
 vim.bo[buf_picker_id].filetype = "quickbuffer"
 local buf_picker_ns = api.nvim_create_namespace('quick_buffer')
 local BS = vim.api.nvim_replace_termcodes("<BS>", true, true, true)
@@ -381,37 +413,78 @@ function M.quickBuffers(config)
     local statusline = vim.o.laststatus > 0 and 1 or 0
     local max_width = vim.o.columns
     local max_height = vim.o.lines - vim.o.cmdheight - tabline - statusline - 2
-    local tabLines, tabData = buildLinesForTabs()
-    local tabWidth, tabHeight = 0, 0
-    if #tabData > 0 then
-        tabWidth, tabHeight = layout(tabLines, max_width)
+    -- buffers whose names are shown: those in any tab's windows plus listed ones
+    local nameBufs = {}
+    for _, tab in ipairs(api.nvim_list_tabpages()) do
+        collectLeafBufs(vim.fn.winlayout(api.nvim_tabpage_get_number(tab)), nameBufs)
+    end
+    for _, b in ipairs(vim.fn.getbufinfo { buflisted = true }) do
+        nameBufs[#nameBufs+1] = b.bufnr
     end
 
-    -- buffers shown in a window listed in Tabs are already reachable, skip them
-    local exclude = {}
-    if #tabData > 0 then
-        exclude[api.nvim_get_current_buf()] = true -- shown (unmarked) in Tabs
+    local tabLines, tabData, tabWidth, tabHeight
+    local bufLines, bufData, bufTotal, bufWidth, bufHeight
+    local function buildTabsAndBuffers(names)
+        tabLines, tabData = buildLinesForTabs(names)
+        tabWidth, tabHeight = 0, 0
+        if #tabData > 0 then
+            tabWidth, tabHeight = layout(tabLines, max_width)
+        end
+
+        -- buffers shown in a window listed in Tabs are already reachable, skip them
+        local exclude = {}
+        if #tabData > 0 then
+            exclude[api.nvim_get_current_buf()] = true -- shown (unmarked) in Tabs
+        end
+        for _, w in ipairs(tabData) do
+            exclude[api.nvim_win_get_buf(w.win)] = true
+        end
+        bufLines, bufData, bufTotal = buildLinesForBuffers(max_width, max_height - tabHeight, exclude, names)
+        bufWidth, bufHeight = 0, 0
+        if bufTotal > 0 then
+            bufWidth, bufHeight = layout(bufLines, max_width)
+        end
     end
-    for _, w in ipairs(tabData) do
-        exclude[api.nvim_win_get_buf(w.win)] = true
+
+    -- pass 1: names among buffers only, to know how many marks are left for old files
+    local names = uniqueDisplayNames(nameBufs)
+    buildTabsAndBuffers(names)
+    local max_marks = #(M.config.quick_buffer_characters)
+    local markTotal = #tabData + bufTotal
+    local oldPaths = {}
+    if markTotal < max_marks and tabHeight + bufHeight < max_height then
+        oldPaths = collectOldFiles(max_marks - markTotal)
     end
-    local bufLines, bufData, bufTotal = buildLinesForBuffers(max_width, max_height - tabHeight, exclude)
-    local bufWidth, bufHeight = 0, 0
-    if bufTotal > 0 then
-        bufWidth, bufHeight = layout(bufLines, max_width)
+
+    -- pass 2: names among buffers and old files together, so that labels are
+    -- unique across all groups; rebuild Tabs/Buffers if any of their labels grew
+    if #oldPaths > 0 then
+        local all = uniqueDisplayNames(nameBufs, oldPaths)
+        local changed = false
+        for _, b in ipairs(nameBufs) do
+            if all[b] ~= names[b] then
+                changed = true
+                break
+            end
+        end
+        names = all
+        if changed then
+            buildTabsAndBuffers(names)
+        end
     end
 
     local width = math.max(tabWidth, bufWidth)
     local height = tabHeight + bufHeight
-    local markTotal = #tabData + bufTotal
+    markTotal = #tabData + bufTotal
 
     local oldFileLines, oldFilePaths = {}, {}
-    local max_marks = #(M.config.quick_buffer_characters)
-    if markTotal < max_marks and height < max_height then
-        oldFileLines, oldFilePaths = buildLinesForOldFiles(max_marks - markTotal, max_height - height, max_width)
-        local w, h = layout(oldFileLines, max_width)
-        width = math.max(width, w)
-        height = height + h
+    if #oldPaths > 0 and height < max_height then
+        oldFileLines, oldFilePaths = buildLinesForOldFiles(oldPaths, max_height - height, max_width, names)
+        if #oldFilePaths > 0 then
+            local w, h = layout(oldFileLines, max_width)
+            width = math.max(width, w)
+            height = height + h
+        end
     end
 
     -- assemble sections; data order must match mark order in the picker
