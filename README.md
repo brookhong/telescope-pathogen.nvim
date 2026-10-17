@@ -64,6 +64,9 @@ The colors come from these highlight groups. They have their own default colors 
 | `quickbufferName`    | `#6699cc` bold      | `#005f87` bold      | buffer, window and file names |
 | `quickbufferCurrent` | `#99c794` bold      | `#008700` bold      | the current buffer/window     |
 | `quickbufferNoName`  | `#f99157` italic    | `#af5f00` italic    | buffers without a file name   |
+| `quickbufferLabel`   | `#1b2b34` on `#fac863` bold | `#ffffff` on `#d75f00` bold | hint labels |
+| `quickbufferLabelTyped` | `#1b2b34` on `#65737e` | `#ffffff` on `#8a8a8a` | the part of a hint label already typed |
+| `quickbufferBackdrop` | bg `#000000`       | bg `#000000`       | dims the editor behind the picker (see `quick_buffer_backdrop`) |
 
 Groups you set yourself are kept. A colorscheme change clears highlight groups, so set yours from a `ColorScheme` autocmd or after `:colorscheme`:
 
@@ -95,6 +98,9 @@ Use [lazy.nvim](https://github.com/folke/lazy.nvim)
                         -- remove below if you want to enable it
                         use_last_search_for_live_grep = false,
                         -- quick_buffer_characters = "asdfgqwertzxcvb",
+                        -- dim the editor behind the quick buffer picker ('winblend' 0-100,
+                        -- higher is lighter; needs 'termguicolors'), or false to turn it off
+                        -- quick_buffer_backdrop = 60,
                         prompt_prefix_length = 100,
                         -- uses a relative path instead of the full path
                         relative_prompt_path = false,

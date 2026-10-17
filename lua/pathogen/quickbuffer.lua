@@ -17,6 +17,9 @@ local HL = {
     name = "quickbufferName",       -- entry names
     current = "quickbufferCurrent", -- the current buffer/window
     noname = "quickbufferNoName",   -- buffers without a file name
+    label = "quickbufferLabel",     -- hint labels
+    typed = "quickbufferLabelTyped", -- the part of a hint label already typed
+    backdrop = "quickbufferBackdrop", -- dims the editor behind the picker
 }
 -- Default colors, given inline rather than linked to other groups, so they
 -- stay distinct whatever the colorscheme (e.g. OceanicNext gives Special and
@@ -27,12 +30,18 @@ local HL_DEFAULTS = {
         [HL.name]    = { fg = "#6699cc", ctermfg = 68, bold = true },
         [HL.current] = { fg = "#99c794", ctermfg = 114, bold = true },
         [HL.noname]  = { fg = "#f99157", ctermfg = 209, italic = true },
+        [HL.label]   = { fg = "#1b2b34", bg = "#fac863", ctermfg = 235, ctermbg = 221, bold = true },
+        [HL.typed]   = { fg = "#1b2b34", bg = "#65737e", ctermfg = 235, ctermbg = 243 },
+        [HL.backdrop] = { bg = "#000000", ctermbg = 16 },
     },
     light = {
         [HL.title]   = { fg = "#8a8a8a", ctermfg = 245 },
         [HL.name]    = { fg = "#005f87", ctermfg = 24, bold = true },
         [HL.current] = { fg = "#008700", ctermfg = 28, bold = true },
         [HL.noname]  = { fg = "#af5f00", ctermfg = 130, italic = true },
+        [HL.label]   = { fg = "#ffffff", bg = "#d75f00", ctermfg = 231, ctermbg = 166, bold = true },
+        [HL.typed]   = { fg = "#ffffff", bg = "#8a8a8a", ctermfg = 231, ctermbg = 245 },
+        [HL.backdrop] = { bg = "#000000", ctermbg = 16 },
     },
 }
 
@@ -92,17 +101,25 @@ end
 
 -- Draw hint labels over the label slots. `positions[i]` = {line, col} (0-based)
 -- is the slot of `data[i]`.
+-- Overlay text for a hint label: the typed part dimmed, the rest prominent,
+-- padded so the badge fills the whole label slot.
+local function labelVirtText(label, typed)
+    local chunks = {}
+    if typed > 0 then
+        chunks[#chunks + 1] = { label:sub(1, typed), HL.typed }
+    end
+    local rest = label:sub(typed + 1)
+    local pad = string.rep(" ", math.max(0, #LABEL_SLOT - #label))
+    chunks[#chunks + 1] = { rest..pad, HL.label }
+    return chunks
+end
+
 local buildMarks = function(bnr, ns_id, data, positions)
     api.nvim_buf_clear_namespace(bnr, ns_id, 0, -1)
-    local found = positions
-    local labels = genLabels(#found)
+    local labels = genLabels(#positions)
     local marks = {}
-    local opts = {
-      virt_text = {{"demo", "Search"}},
-      virt_text_pos = 'overlay',
-    }
-    for i, pos in ipairs(found) do
-        opts.virt_text = {{labels[i], "Search"}}
+    for i, pos in ipairs(positions) do
+        local opts = { virt_text = labelVirtText(labels[i], 0), virt_text_pos = "overlay" }
         marks[#marks + 1] = {
             id = api.nvim_buf_set_extmark(bnr, ns_id, pos[1], pos[2], opts),
             data = data[i],
@@ -479,6 +496,25 @@ local buf_picker_id = vim.api.nvim_create_buf(false, true)
 pcall(vim.api.nvim_buf_set_name, buf_picker_id, "[QuickBuffer]")
 vim.bo[buf_picker_id].filetype = "quickbuffer"
 local buf_picker_ns = api.nvim_create_namespace('quick_buffer')
+local buf_backdrop_id = api.nvim_create_buf(false, true)
+
+-- A see-through float over the whole editor, below the picker, that dims what's
+-- behind it. Needs 'termguicolors': without it 'winblend' has no effect and the
+-- backdrop would hide the editor. Returns the window id, or nil.
+local function openBackdrop(blend)
+    if not blend or not vim.o.termguicolors then
+        return nil
+    end
+    -- noautocmd: don't run user BufEnter/WinEnter autocmds for it
+    local win = api.nvim_open_win(buf_backdrop_id, false, {
+        relative = "editor", row = 0, col = 0,
+        width = vim.o.columns, height = vim.o.lines,
+        focusable = false, style = "minimal", zindex = 49, noautocmd = true,
+    })
+    vim.wo[win].winhighlight = "Normal:"..HL.backdrop
+    vim.wo[win].winblend = blend
+    return win
+end
 local buf_picker_hl_ns = api.nvim_create_namespace('quick_buffer_hl')
 local BS = vim.api.nvim_replace_termcodes("<BS>", true, true, true)
 local ESC = vim.api.nvim_replace_termcodes("<Esc>", true, true, true)
@@ -607,7 +643,8 @@ function M.quickBuffers(config)
     for _, h in ipairs(hls) do
         api.nvim_buf_set_extmark(buf_picker_id, buf_picker_hl_ns, h[1], h[2], { end_col = h[3], hl_group = h[4] })
     end
-    local buf_picker_win_id = vim.api.nvim_open_win(buf_picker_id, false, {relative='editor', row=tabline, col=0, width=width, height=height + 2})
+    local backdrop_win_id = openBackdrop(M.config.quick_buffer_backdrop)
+    local buf_picker_win_id = vim.api.nvim_open_win(buf_picker_id, false, {relative='editor', row=tabline, col=0, width=width, height=height + 2, zindex=50})
     vim.wo[buf_picker_win_id].relativenumber = false
     vim.wo[buf_picker_win_id].number = false
     vim.api.nvim_set_current_win(buf_picker_win_id )
@@ -645,13 +682,13 @@ function M.quickBuffers(config)
         local nextMatches = {}
         for _, m in ipairs(matches) do
             if m.label:sub(1, #pick) == pick then
-                local mark = api.nvim_buf_get_extmark_by_id(bnr, buf_picker_ns, m.id, { details = true })
-                local opts = {
-                  virt_text = {{"demo", "Comment"}},
-                  virt_text_pos = 'overlay',
-                }
-                opts.virt_text = {{pick, "Comment"}}
-                api.nvim_buf_set_extmark(bnr, buf_picker_ns, mark[1], mark[2], opts)
+                local mark = api.nvim_buf_get_extmark_by_id(bnr, buf_picker_ns, m.id, {})
+                -- update the label in place (same id), showing what's typed so far
+                api.nvim_buf_set_extmark(bnr, buf_picker_ns, mark[1], mark[2], {
+                    id = m.id,
+                    virt_text = labelVirtText(m.label, #pick),
+                    virt_text_pos = "overlay",
+                })
                 nextMatches[#nextMatches+1] = m
             else
                 api.nvim_buf_del_extmark(bnr, buf_picker_ns, m.id)
@@ -665,6 +702,9 @@ function M.quickBuffers(config)
 
     if api.nvim_win_is_valid(buf_picker_win_id) then
         vim.api.nvim_win_close(buf_picker_win_id , true)
+    end
+    if backdrop_win_id and api.nvim_win_is_valid(backdrop_win_id) then
+        api.nvim_win_close(backdrop_win_id, true)
     end
     -- the original window may be gone (e.g. a float closed on WinLeave)
     if api.nvim_win_is_valid(original_win_id) then

@@ -287,6 +287,12 @@ the slot of `data[i]`. `M.quickBuffers` asserts that the counts match
 `buildMarks(bnr, ns, data, positions)` draws `labels[i]` over `positions[i]`
 as an overlay extmark.
 
+`labelVirtText(label, typed)` builds the overlay: the part already typed in
+`quickbufferLabelTyped` (dimmed), the rest in `quickbufferLabel` (a bold badge),
+padded with spaces to the width of `LABEL_SLOT` so a one-letter label still
+fills the whole slot. On every key press the matching labels are updated in
+place (`nvim_buf_set_extmark` with the label's `id`), the others deleted.
+
 Before this, the entries started with a visible marker (`　➜ `) and
 `buildMarks` searched the picker text for it. That needed a marker that no
 name could contain.

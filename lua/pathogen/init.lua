@@ -22,6 +22,9 @@ local M = {
         end,
         use_last_search_for_live_grep = true,
         quick_buffer_characters = "asdfgqwertzxcvb",
+        -- dim the editor behind the quick buffer picker: 'winblend' of the
+        -- backdrop (0-100, higher is lighter), or false to turn it off
+        quick_buffer_backdrop = 60,
         prompt_prefix_length = 100,
         prompt_suffix = "» ",
         relative_prompt_path = false,
