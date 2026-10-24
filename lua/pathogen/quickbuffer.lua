@@ -20,6 +20,7 @@ local HL = {
     label = "quickbufferLabel",     -- hint labels
     typed = "quickbufferLabelTyped", -- the part of a hint label already typed
     backdrop = "quickbufferBackdrop", -- dims the editor behind the picker
+    cursor = "quickbufferHiddenCursor", -- 'guicursor' while the picker is open
 }
 -- Default colors, given inline rather than linked to other groups, so they
 -- stay distinct whatever the colorscheme (e.g. OceanicNext gives Special and
@@ -51,6 +52,18 @@ local function setupHighlights()
     local palette = HL_DEFAULTS[vim.o.background] or HL_DEFAULTS.dark
     for group, attrs in pairs(palette) do
         api.nvim_set_hl(0, group, vim.tbl_extend("force", attrs, { default = true }))
+    end
+    -- a fully transparent cursor, i.e. hidden; not meant to be customized
+    api.nvim_set_hl(0, HL.cursor, { blend = 100, nocombine = true })
+end
+
+-- The picker is driven by typing labels, the cursor is never moved, so hide it
+-- while the picker is open. Returns a function that restores it.
+local function hideCursor()
+    local saved = vim.o.guicursor
+    vim.o.guicursor = "a:"..HL.cursor
+    return function()
+        vim.o.guicursor = saved
     end
 end
 
@@ -648,6 +661,7 @@ function M.quickBuffers(config)
     vim.wo[buf_picker_win_id].relativenumber = false
     vim.wo[buf_picker_win_id].number = false
     vim.api.nvim_set_current_win(buf_picker_win_id )
+    local restoreCursor = hideCursor()
 
     -- loop for user picking
     local bnr = vim.fn.bufnr('%')
@@ -700,6 +714,7 @@ function M.quickBuffers(config)
 
     api.nvim_buf_clear_namespace(bnr, buf_picker_ns, 0, -1)
 
+    restoreCursor()
     if api.nvim_win_is_valid(buf_picker_win_id) then
         vim.api.nvim_win_close(buf_picker_win_id , true)
     end
