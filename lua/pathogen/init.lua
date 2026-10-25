@@ -411,18 +411,42 @@ function M.browse_file(opts)
             end)
         end
     end
-    local function delete_file(prompt_bufnr)
+    local function delete_selection(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
         local content = state.get_selected_entry(prompt_bufnr)
-        if content ~= nil then
-            vim.ui.input({ prompt = "Delete file: ", default = curr_picker.cwd .. "/" .. content.value }, function(input)
-                if not input then
-                    return
-                end
-                vim.fn.delete(input)
-                curr_picker:reload(curr_picker.cwd)
-            end)
+        if content == nil then
+            return
         end
+        local is_dir = content.kind == "📁"
+        local prompt = is_dir and "Delete directory: " or "Delete file: "
+        vim.ui.input({ prompt = prompt, default = curr_picker.cwd .. "/" .. content.value }, function(input)
+            if not input or input == "" then
+                return
+            end
+            local function remove(flags)
+                if vim.fn.delete(input, flags) ~= 0 then
+                    vim.notify("pathogen: failed to delete " .. input, vim.log.levels.ERROR)
+                end
+                curr_picker:reload(curr_picker.cwd)
+            end
+            if vim.fn.isdirectory(input) == 0 then
+                remove("")
+                return
+            end
+            local entries = #vim.fn.readdir(input)
+            if entries == 0 then
+                remove("d")
+                return
+            end
+            -- non-empty directory: deleting is recursive, so ask once more
+            vim.ui.input({
+                prompt = string.format("%s is not empty (%d entries), delete recursively? [y/N] ", input, entries),
+            }, function(answer)
+                if answer and answer:lower():match("^y") then
+                    remove("rf")
+                end
+            end)
+        end)
     end
     local function terminal(prompt_bufnr)
         local curr_picker = state.get_current_picker(prompt_bufnr)
@@ -451,7 +475,7 @@ function M.browse_file(opts)
             map("i", "<C-e>", live_grep)
             map("i", "<C-f>", find_files)
             map("i", "<C-g>c", create_file)
-            map("i", "<C-g>d", delete_file)
+            map("i", "<C-g>d", delete_selection)
             map("i", "<C-g>t", terminal)
             return common_mappings(_, map)
         end,

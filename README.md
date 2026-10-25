@@ -43,7 +43,7 @@ A quick ui within telescope to pick up file or directory.
 * `C-e` trigger `live_grep` within picked directory.
 * `C-f` trigger `find_files` within picked directory.
 * `C-g c` copy current selection to another file or create a new file.
-* `C-g d` delete current selection.
+* `C-g d` delete current selection, a file or a directory (a non-empty directory is deleted recursively, after asking to confirm).
 * `C-g t` open terminal from current working directory.
 
 ![d](https://user-images.githubusercontent.com/288207/225836274-713eb4ee-1330-4dc6-9649-47701b993081.gif)
