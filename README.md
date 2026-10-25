@@ -50,29 +50,19 @@ A quick ui within telescope to pick up file or directory.
 
 ### quick buffer
 
-A swift way to switch buffer or pick recently opened file, use `Telescope pathogen quick_buffer` to launch it, which will list current buffers and some recently opened files, with each prefixed with a label. You can then press the labelled key(s) to switch to a buffer or open a file, if a key not from the labels are pressed, `Telescope oldfiles` will be launched for you to search old files.
+The quick buffer picker has moved to [foyer.nvim](https://github.com/brookhong/foyer.nvim), as
+`require('foyer').jump()`.
 
-The idea comes from [Switch tabs](https://github.com/brookhong/Surfingkeys?tab=readme-ov-file#switch-tabs) feature of Surfingkeys.
+Why: the picker was only ever loosely a telescope feature -- telescope was its fallback for a
+key that is no label, nothing more -- and what it needs next is to know which windows are worth
+going to. foyer already decides that for its window switching, leaving out windows a full-screen
+neighbour has squeezed flat, and it knows which terminals belong to which project and which run
+coding agents. In foyer the picker shares those rules instead of guessing at them, and it no
+longer needs telescope.
 
-![quick_buffer](https://github.com/brookhong/telescope-pathogen.nvim/assets/288207/51d060af-34be-4fba-a0f1-294404cdcff4)
-
-The colors come from these highlight groups. They have their own default colors (not links to other groups, so they stay distinct in any colorscheme), with a palette for each `'background'`:
-
-| group                | dark                | light               | used for                      |
-|----------------------|---------------------|---------------------|-------------------------------|
-| `quickbufferTitle`   | `#65737e`           | `#8a8a8a`           | group titles                  |
-| `quickbufferName`    | `#6699cc` bold      | `#005f87` bold      | buffer, window and file names |
-| `quickbufferCurrent` | `#99c794` bold      | `#008700` bold      | the current buffer/window     |
-| `quickbufferNoName`  | `#f99157` italic    | `#af5f00` italic    | buffers without a file name   |
-| `quickbufferLabel`   | `#1b2b34` on `#fac863` bold | `#ffffff` on `#d75f00` bold | hint labels |
-| `quickbufferLabelTyped` | `#1b2b34` on `#65737e` | `#ffffff` on `#8a8a8a` | the part of a hint label already typed |
-| `quickbufferBackdrop` | bg `#000000`       | bg `#000000`       | dims the editor behind the picker (see `quick_buffer_backdrop`) |
-
-Groups you set yourself are kept. A colorscheme change clears highlight groups, so set yours from a `ColorScheme` autocmd or after `:colorscheme`:
-
-```lua
-vim.api.nvim_set_hl(0, "quickbufferNoName", { fg = "#d19a66", italic = true })
-```
+To carry your settings over: `quick_buffer_characters` and `quick_buffer_backdrop` are now
+foyer's `jump.characters` and `jump.backdrop`, the `quickbuffer*` highlight groups are now
+`FoyerJump*`, and `Telescope pathogen quick_buffer` is `require('foyer').jump()`.
 
 
 ## 📦 Installation
@@ -97,10 +87,6 @@ Use [lazy.nvim](https://github.com/folke/lazy.nvim)
                         end,
                         -- remove below if you want to enable it
                         use_last_search_for_live_grep = false,
-                        -- quick_buffer_characters = "asdfgqwertzxcvb",
-                        -- dim the editor behind the quick buffer picker ('winblend' 0-100,
-                        -- higher is lighter; needs 'termguicolors'), or false to turn it off
-                        -- quick_buffer_backdrop = 60,
                         prompt_prefix_length = 100,
                         -- uses a relative path instead of the full path
                         relative_prompt_path = false,

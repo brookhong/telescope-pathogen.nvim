@@ -9,7 +9,6 @@ local popup = require("plenary.popup")
 local sorters = require("telescope.sorters")
 local state = require("telescope.actions.state")
 local telescope_actions = require("telescope.actions")
-local quick_buffer = require("pathogen.quickbuffer")
 
 local M = {
     config = {
@@ -21,10 +20,6 @@ local M = {
             map("i", "<C-g>i", actions.invert_grep_in_result)
         end,
         use_last_search_for_live_grep = true,
-        quick_buffer_characters = "asdfgqwertzxcvb",
-        -- dim the editor behind the quick buffer picker: 'winblend' of the
-        -- backdrop (0-100, higher is lighter), or false to turn it off
-        quick_buffer_backdrop = 60,
         prompt_prefix_length = 100,
         prompt_suffix = "» ",
         relative_prompt_path = false,
@@ -641,11 +636,6 @@ function M.grep_in_files(opts)
             end)
         end
     })
-end
-
-function M.quick_buffer(opts)
-    quick_buffer.config = M.config
-    quick_buffer.quickBuffers()
 end
 
 return M
